@@ -95,21 +95,31 @@ cd "$(git rev-parse --show-toplevel)" 2>/dev/null || exit 1
 
 fail=0
 
-for f in docs/features/*.md; do
-  [ -e "$f" ] || continue
-  awk -F'|' '
+# Проверяется содержимое индекса (то, что реально уйдёт в коммит), а не рабочее дерево.
+# :(glob) — чтобы * не заходил в подкаталоги: архив docs/features/done/ не проверяем.
+features=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR -- ':(glob)docs/features/*.md')
+
+old_ifs=$IFS
+IFS='
+'
+set -f
+for f in $features; do
+  [ -n "$f" ] || continue
+  git show ":$f" | awk -F'|' -v fname="$f" '
     BEGIN { bad = 0 }
     /^[[:space:]]*\|[[:space:]]*[0-9]+[[:space:]]*\|/ {
       check = $NF
       if (check ~ /^[[:space:]]*$/) check = $(NF - 1)
       if (check ~ /^[[:space:]]*$/) {
-        printf "%s:%d: ошибка: пустая колонка «Чем проверяется» в критерии готовности\n", FILENAME, NR
+        printf "%s:%d: ошибка: пустая колонка «Чем проверяется» в критерии готовности\n", fname, NR
         bad = 1
       }
     }
     END { exit bad }
-  ' "$f" || fail=1
+  ' || fail=1
 done
+set +f
+IFS=$old_ifs
 
 staged=$(git diff --cached --name-only --)
 if printf '%s\n' "$staged" | grep -qx 'docs/plan.md'; then
@@ -126,9 +136,16 @@ fi
 
 exit 0
 '@
+    # LF-переводы строк: с CRLF шебанг ломается на Linux/macOS.
+    $hook = $hook -replace "`r`n", "`n"
     $utf8 = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($hookPath, $hook, $utf8)
     Write-Host "[OK] .githooks/pre-commit"
+}
+
+# Признак исполняемости: без него git молча пропускает хук на Linux/macOS.
+if ($PSVersionTable.Platform -and $PSVersionTable.Platform -ne 'Win32NT') {
+    & chmod +x -- $hookPath
 }
 
 # Подключить хук, если это git-репозиторий
@@ -137,6 +154,16 @@ if ($LASTEXITCODE -eq 0) {
     $hooksAbs = (Join-Path $target '.githooks').Replace('\', '/')
     git -C "$target" config core.hooksPath "$hooksAbs"
     Write-Host "[OK] core.hooksPath = $hooksAbs"
+
+    # Режим 100755 в индексе — иначе после клона на Linux/macOS хук не запустится.
+    $ErrorActionPreference = 'Continue'
+    git -C "$target" add --chmod=+x -- '.githooks/pre-commit'
+    $ErrorActionPreference = 'Stop'
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "[OK] .githooks/pre-commit добавлен в индекс с признаком исполняемости"
+    } else {
+        Write-Host "[i]  не удалось выставить признак исполняемости: выполни 'git add --chmod=+x .githooks/pre-commit'"
+    }
 } else {
     Write-Host "[i]  не git-репозиторий: после git init выполни 'git config core.hooksPath .githooks'"
 }
