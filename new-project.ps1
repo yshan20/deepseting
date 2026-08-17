@@ -44,8 +44,10 @@ if (Test-Path -LiteralPath $readme) {
     Write-Host "[i]  README.md уже существует — пропущен"
 } else {
     $leaf = Split-Path $target -Leaf
-    $content = @"
-# $leaf
+    # Здесь-строка одинарная: в интерполирующей PowerShell съедает обратные кавычки
+    # markdown как escape-символ. Имя проекта подставляется после.
+    $content = @'
+# __PROJECT__
 
 Краткое описание структуры проекта.
 
@@ -60,12 +62,15 @@ if (Test-Path -LiteralPath $readme) {
 
 - Критерии готовности в `docs/features/*.md` — таблица с обязательной колонкой «Чем проверяется».
 - Критерии готовности утверждает человек до начала работы над планом.
-- Git pre-commit хук в `.githooks/pre-commit` (подключён через `core.hooksPath`) отклоняет коммит, если в критериях есть пустая колонка «Чем проверяется» или изменён `docs/plan.md` без изменения `PROGRESS.md`.
+- Git pre-commit хук в `.githooks/pre-commit` (подключён через `core.hooksPath`) проверяет содержимое индекса — то, что уйдёт в коммит, а не файлы в рабочем дереве.
+
+Хук отклоняет коммит, если в критериях готовности есть строка с пустой колонкой «Чем проверяется» или без этой колонки вообще, если в разделе «Критерии готовности» нет таблицы с такой колонкой, или если изменён `docs/plan.md` без изменения `PROGRESS.md`. Архив `docs/features/done/` не проверяется. В тексте ошибки — имя файла и номер строки.
 
 ## Запуск / сборка / тесты
 
 <!-- как запускать, собирать и тестировать проект -->
-"@
+'@
+    $content = $content.Replace('__PROJECT__', $leaf)
     $utf8 = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($readme, $content, $utf8)
     Write-Host "[OK] README.md"
