@@ -1,4 +1,4 @@
-# install.ps1 — разворачивает настройки DeepSeek Harness (DSH) в ~/.dsh
+﻿# install.ps1 — разворачивает настройки DeepSeek Harness (DSH) в ~/.dsh
 #
 # Запуск:
 #   pwsh -File install.ps1
