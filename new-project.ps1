@@ -106,16 +106,50 @@ set -f
 for f in $features; do
   [ -n "$f" ] || continue
   git show ":$f" | awk -F'|' -v fname="$f" '
-    BEGIN { bad = 0 }
-    /^[[:space:]]*\|[[:space:]]*[0-9]+[[:space:]]*\|/ {
-      check = $NF
-      if (check ~ /^[[:space:]]*$/) check = $(NF - 1)
-      if (check ~ /^[[:space:]]*$/) {
+    function trim(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
+
+    # Колонка ищется по заголовку таблицы, а не по фиксированному номеру:
+    # проверка не зависит от числа колонок и их порядка в конкретном файле.
+    BEGIN { bad = 0; col = 0; found = 0; seen = 0; seen_line = 0 }
+
+    /^[[:space:]]*##[[:space:]]*Критерии готовности/ {
+      seen = 1; seen_line = NR; col = 0; next
+    }
+
+    /^[[:space:]]*\|/ {
+      # Ячейки лежат в полях 2..n+1; завершающий разделитель даёт пустое поле.
+      n = NF - 1
+      if (trim($NF) == "") n = NF - 2
+
+      hdr = 0
+      for (i = 1; i <= n; i++)
+        if (trim($(i + 1)) == "Чем проверяется") { col = i; found = 1; hdr = 1 }
+      if (hdr) next
+
+      if ($0 ~ /^[[:space:]]*\|[[:space:]:|-]*$/) next
+      if (col == 0) next
+
+      if (n < col) {
+        printf "%s:%d: ошибка: в строке критерия нет колонки «Чем проверяется»\n", fname, NR
+        bad = 1
+        next
+      }
+      if (trim($(col + 1)) == "") {
         printf "%s:%d: ошибка: пустая колонка «Чем проверяется» в критерии готовности\n", fname, NR
         bad = 1
       }
+      next
     }
-    END { exit bad }
+
+    { col = 0 }
+
+    END {
+      if (seen && !found) {
+        printf "%s:%d: ошибка: в разделе «Критерии готовности» нет таблицы с колонкой «Чем проверяется»\n", fname, seen_line
+        bad = 1
+      }
+      exit bad
+    }
   ' || fail=1
 done
 set +f
