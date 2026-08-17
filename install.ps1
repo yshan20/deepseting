@@ -55,7 +55,14 @@ if (Test-Path -LiteralPath $genSrc) {
 
 # 4. API-ключ (секрет) — по желанию, в репозиторий не попадает
 $credFile = Join-Path $dshHome '.credentials.yaml'
-$key = (Read-Host "Вставь DEEPSEEK_API_KEY (или Enter, чтобы пропустить)").Trim()
+# В неинтерактивном запуске Read-Host возвращает $null или падает с ошибкой.
+# В обоих случаях считаем, что ключ не введён: существующий файл не трогаем.
+$key = ''
+try {
+    $key = ([string](Read-Host "Вставь DEEPSEEK_API_KEY (или Enter, чтобы пропустить)")).Trim()
+} catch {
+    Write-Host "[i]  ввод недоступен (неинтерактивный запуск) — ключ не запрашивается"
+}
 if ($key -ne '') {
     Set-Content -LiteralPath $credFile -Value "DEEPSEEK_API_KEY: $key" -Encoding ascii
     Write-Host "[OK] создан $credFile"
