@@ -1,12 +1,26 @@
 # Никогда не коммитить секреты
+.credentials.json
 .credentials.yaml
 *.pem
 *.key
 
-# Машинозависимые идентификаторы и данные рантайма
-.anonymous-user-id
-sessions/
-storages/
+# Машинозависимые данные и состояние Claude Code
+.claude.json
+history.jsonl
+/projects/
+/sessions/
+/shell-snapshots/
+/todos/
+/statsig/
+/telemetry/
+/file-history/
+/paste-cache/
+
+# Резервные копии, которые создаёт install.ps1
+*.bak-*
+
+# Временные каталоги тестов
+tests/.tmp/
 
 # Установленные зависимости (восстанавливаются установкой)
 node_modules/
