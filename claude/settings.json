@@ -1,0 +1,10 @@
+{
+  "model": "opus",
+  "theme": "dark",
+  "permissions": {
+    "defaultMode": "auto"
+  },
+  "enableWorkflows": true,
+  "autoUpdatesChannel": "latest",
+  "tui": "fullscreen"
+}

@@ -14,12 +14,13 @@ $ErrorActionPreference = 'Stop'
 
 $target = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
 
-# Каталог шаблонов: ~/.dsh/skills/... или рядом с этим скриптом в deepseting
-$dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $HOME '.dsh' }
+# Каталог шаблонов: каталог настроек Claude Code (после install.ps1) или сам репозиторий.
+$configDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
 $tpl = $null
 foreach ($candidate in @(
-        (Join-Path $dshHome 'skills\project-specifications\templates'),
-        (Join-Path $PSScriptRoot 'skill\project-specifications\templates')
+        (Join-Path $configDir 'skills\project-specifications\templates'),
+        (Join-Path $PSScriptRoot '..\claude\skills\project-specifications\templates'),
+        (Join-Path $PSScriptRoot '..\skills\project-specifications\templates')
     )) {
     if (Test-Path -LiteralPath (Join-Path $candidate 'SPEC.md')) { $tpl = $candidate; break }
 }
