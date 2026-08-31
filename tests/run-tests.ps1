@@ -60,7 +60,7 @@ function Get-BackupCount([string]$Dir, [string]$Name) {
     return @(Get-ChildItem -LiteralPath $Dir -Filter "$Name.bak-*" -ErrorAction SilentlyContinue).Count
 }
 
-Write-Host "== Тесты обвязки Claude Code =="
+Write-Host "== Тесты обвязки Codex =="
 Write-Host "Репозиторий : $repo"
 Write-Host "Временно в  : $tmpRoot"
 Write-Host ""
@@ -70,40 +70,38 @@ Write-Host "-- установка с нуля"
 $cfgFresh = Join-Path $tmpRoot 'config-fresh'
 & $install -ConfigDir $cfgFresh | Out-Null
 
-Check 'CLAUDE.md установлен' (Test-Path -LiteralPath (Join-Path $cfgFresh 'CLAUDE.md'))
+Check 'AGENTS.md установлен' (Test-Path -LiteralPath (Join-Path $cfgFresh 'AGENTS.md'))
 Check 'SKILL.md установлен' (Test-Path -LiteralPath (Join-Path $cfgFresh 'skills\project-specifications\SKILL.md'))
 Check 'шаблоны установлены' (Test-Path -LiteralPath (Join-Path $cfgFresh 'skills\project-specifications\templates\feature.md'))
 Check 'генератор установлен' (Test-Path -LiteralPath (Join-Path $cfgFresh 'bin\new-project.ps1'))
 
-$fresh = Read-Json (Join-Path $cfgFresh 'settings.json')
-Check 'модель перенесена' ($fresh.model -eq 'opus') "получено: $($fresh.model)"
-Check 'режим прав перенесён' ($fresh.permissions.defaultMode -eq 'auto') "получено: $($fresh.permissions.defaultMode)"
+$fresh = [System.IO.File]::ReadAllText((Join-Path $cfgFresh 'config.toml'))
+Check 'модель перенесена' ($fresh -match '(?m)^model = "gpt-5\.6-sol"$')
+Check 'режим песочницы перенесён' ($fresh -match '(?m)^sandbox_mode = "workspace-write"$')
 
 # --- 2. Слияние с существующими настройками ----------------------------------
 Write-Host "-- слияние настроек"
 $cfgMerge = Join-Path $tmpRoot 'config-merge'
 New-Item -ItemType Directory -Force -Path $cfgMerge | Out-Null
-Set-Text (Join-Path $cfgMerge 'settings.json') @'
-{
-  "permissions": { "defaultMode": "plan", "allow": ["Bash(ls:*)"] },
-  "statusLine": { "type": "command", "command": "echo hi" }
-}
+Set-Text (Join-Path $cfgMerge 'config.toml') @'
+[mcp_servers.example]
+command = "example-server"
 '@
 & $install -ConfigDir $cfgMerge | Out-Null
-$merged = Read-Json (Join-Path $cfgMerge 'settings.json')
+$merged = [System.IO.File]::ReadAllText((Join-Path $cfgMerge 'config.toml'))
 
-Check 'чужие ключи сохранены' ($merged.statusLine.command -eq 'echo hi')
-Check 'вложенные чужие ключи сохранены' (@($merged.permissions.allow) -contains 'Bash(ls:*)')
-Check 'ключи репозитория побеждают' ($merged.permissions.defaultMode -eq 'auto') "получено: $($merged.permissions.defaultMode)"
-Check 'новые ключи добавлены' ($merged.model -eq 'opus')
-Check 'сделана резервная копия' ((Get-BackupCount $cfgMerge 'settings.json') -eq 1) "копий: $(Get-BackupCount $cfgMerge 'settings.json')"
+Check 'локальная секция сохранена' ($merged -match '\[mcp_servers\.example\]')
+Check 'локальное значение сохранено' ($merged -match 'command = "example-server"')
+Check 'ключи репозитория добавлены' ($merged -match '(?m)^model = "gpt-5\.6-sol"$')
+Check 'управляемый блок единственный' (([regex]::Matches($merged, 'deepseting managed defaults >>>')).Count -eq 1)
+Check 'сделана резервная копия' ((Get-BackupCount $cfgMerge 'config.toml') -eq 1) "копий: $(Get-BackupCount $cfgMerge 'config.toml')"
 
 # --- 3. Повторный запуск идемпотентен ----------------------------------------
 Write-Host "-- повторная установка"
 & $install -ConfigDir $cfgMerge | Out-Null
-$again = Read-Json (Join-Path $cfgMerge 'settings.json')
-Check 'повторная установка не портит настройки' ($again.statusLine.command -eq 'echo hi' -and $again.model -eq 'opus')
-Check 'лишних резервных копий нет' ((Get-BackupCount $cfgMerge 'settings.json') -eq 1) "копий: $(Get-BackupCount $cfgMerge 'settings.json')"
+$again = [System.IO.File]::ReadAllText((Join-Path $cfgMerge 'config.toml'))
+Check 'повторная установка не портит настройки' ($again -match 'command = "example-server"' -and ([regex]::Matches($again, 'deepseting managed defaults >>>')).Count -eq 1)
+Check 'лишних резервных копий нет' ((Get-BackupCount $cfgMerge 'config.toml') -eq 1) "копий: $(Get-BackupCount $cfgMerge 'config.toml')"
 
 # --- 4. Каркас нового проекта -------------------------------------------------
 Write-Host "-- каркас проекта"

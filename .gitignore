@@ -4,17 +4,20 @@
 *.pem
 *.key
 
-# Машинозависимые данные и состояние Claude Code
-.claude.json
-history.jsonl
-/projects/
+# Машинозависимые данные и состояние Codex
+auth.json
+/config.toml
+models_cache.json
+session_index.jsonl
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+/cache/
 /sessions/
-/shell-snapshots/
-/todos/
-/statsig/
-/telemetry/
-/file-history/
-/paste-cache/
+/tmp/
+/plugins/
+/vendor_imports/
+/visualizations/
 
 # Резервные копии, которые создаёт install.ps1
 *.bak-*
