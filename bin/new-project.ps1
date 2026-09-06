@@ -14,6 +14,24 @@ $ErrorActionPreference = 'Stop'
 
 $target = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
 
+# Resolve nested invocations to the Git root before reading project policy.
+$ErrorActionPreference = 'Continue'
+$gitOutput = & git -C $target rev-parse --show-toplevel 2>&1
+$gitCode = $LASTEXITCODE
+$ErrorActionPreference = 'Stop'
+if ($gitCode -eq 0) {
+    $target = ($gitOutput | Out-String).Trim()
+} elseif (($gitOutput | Out-String) -notmatch 'not a git repository') {
+    throw "Cannot determine repository root: $gitOutput"
+}
+. (Join-Path $PSScriptRoot 'project-orchestration.ps1')
+$mode = Get-ProjectOrchestrationMode $target
+Write-Host "[i]  PROJECT_ORCHESTRATION_MODE: $mode"
+if ($mode -eq 'GAME_MASTER_PLAN') {
+    Write-Warning 'Game Master Plan detected. Skipping docs/SPEC.md, docs/features/, docs/plan.md, root PROGRESS.md and the standard specification hook. Existing project state and tooling are preserved.'
+    return
+}
+
 # Каталог шаблонов: каталог настроек Claude Code (после install.ps1) или сам репозиторий.
 $configDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
 $tpl = $null
@@ -30,6 +48,10 @@ New-Item -ItemType Directory -Force -Path (Join-Path $target 'docs\features') | 
 
 function Copy-Tpl([string]$name, [string]$dest) {
     $dst = Join-Path $target $dest
+    if (Test-Path -LiteralPath $dst) {
+        Write-Host "[i]  $dest already exists - skipped"
+        return
+    }
     if ($tpl) {
         Copy-Item -LiteralPath (Join-Path $tpl $name) -Destination $dst -Force
     } else {
@@ -98,6 +120,31 @@ if (Test-Path -LiteralPath $hookPath) {
 #!/bin/sh
 # pre-commit: проверяет спецификации проекта перед коммитом.
 cd "$(git rev-parse --show-toplevel)" 2>/dev/null || exit 1
+
+# Route using the index, just like the specification checks below. Unstaged
+# markers must not bypass validation of a STANDARD_DEEPSETING commit.
+mode=$(git show ':CLAUDE.md' 2>/dev/null | awk '
+  { sub(/^\357\273\277/, "") }
+  /^[\t ]*PROJECT_ORCHESTRATION_MODE:/ {
+    count++; sub(/^[\t ]*PROJECT_ORCHESTRATION_MODE:[\t ]*/, "")
+    sub(/[\t \r]+$/, ""); mode = $0
+  }
+  END {
+    if (count > 1 || (count == 1 && mode != "GAME_MASTER_PLAN" && mode != "STANDARD_DEEPSETING")) exit 1
+    print mode
+  }
+') || { echo 'Invalid PROJECT_ORCHESTRATION_MODE in staged CLAUDE.md'; exit 1; }
+if [ -z "$mode" ]; then
+  if git cat-file -e ':specs/master/ACTIVE_STAGE.md' 2>/dev/null; then
+    mode=GAME_MASTER_PLAN
+  else
+    mode=STANDARD_DEEPSETING
+  fi
+fi
+if [ "$mode" = GAME_MASTER_PLAN ]; then
+  echo 'Game Master Plan: skipping standard specification validation.'
+  exit 0
+fi
 
 fail=0
 
@@ -189,8 +236,7 @@ if ($PSVersionTable.Platform -and $PSVersionTable.Platform -ne 'Win32NT') {
 }
 
 # Подключить хук, если это git-репозиторий
-$null = git -C "$target" rev-parse --is-inside-work-tree 2>$null
-if ($LASTEXITCODE -eq 0) {
+if ($gitCode -eq 0) {
     $hooksAbs = (Join-Path $target '.githooks').Replace('\', '/')
     git -C "$target" config core.hooksPath "$hooksAbs"
     Write-Host "[OK] core.hooksPath = $hooksAbs"

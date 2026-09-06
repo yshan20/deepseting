@@ -35,6 +35,7 @@ if (-not (Test-Path -LiteralPath $payload)) {
 }
 
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+$configDir = (Resolve-Path -LiteralPath $configDir).Path
 
 # UTF-8 без BOM: файлы читают и Claude Code, и git, и sh.
 function Write-Utf8NoBom([string]$Path, [string]$Text) {
@@ -103,16 +104,45 @@ Write-Host "[OK] settings.json -> $settingsDst"
 #    Каталог назначения очищается: иначе в нём остаются шаблоны, удалённые из репозитория.
 $skillSrc = Join-Path $payload 'skills\project-specifications'
 $skillDst = Join-Path $configDir 'skills\project-specifications'
-if (Test-Path -LiteralPath $skillDst) { Remove-Item -LiteralPath $skillDst -Recurse -Force }
+if (Test-Path -LiteralPath $skillDst) {
+    $resolvedSkill = (Resolve-Path -LiteralPath $skillDst).Path
+    $expectedSkill = [System.IO.Path]::GetFullPath((Join-Path $configDir 'skills\project-specifications'))
+    if ($resolvedSkill -ne $expectedSkill) { throw "Unexpected skill path: $resolvedSkill" }
+    foreach ($entry in @((Get-Item -LiteralPath (Join-Path $configDir 'skills')), (Get-Item -LiteralPath $skillDst)) + @(Get-ChildItem -LiteralPath $skillDst -Recurse -Force)) {
+        if ($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { throw "Refusing to replace linked skill path: $($entry.FullName)" }
+    }
+    # Preserve local skill edits before replacing the installed tree.
+    $different = $false
+    $sourceFiles = @(Get-ChildItem -LiteralPath $skillSrc -Recurse -File)
+    $destFiles = @(Get-ChildItem -LiteralPath $skillDst -Recurse -File)
+    if ($sourceFiles.Count -ne $destFiles.Count) { $different = $true }
+    foreach ($file in $sourceFiles) {
+        $relative = $file.FullName.Substring($skillSrc.Length).TrimStart('\', '/')
+        $destFile = Join-Path $skillDst $relative
+        if (-not (Test-Path -LiteralPath $destFile -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $file.FullName).Hash -ne (Get-FileHash -LiteralPath $destFile).Hash) { $different = $true }
+    }
+    if ($different) {
+        $backup = "$skillDst.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss-fffffff')"
+        Copy-Item -LiteralPath $skillDst -Destination $backup -Recurse
+        Write-Host "[i]  skill backup: $backup"
+    }
+    Remove-Item -LiteralPath $resolvedSkill -Recurse -Force
+}
 New-Item -ItemType Directory -Force -Path $skillDst | Out-Null
 Copy-Item -Path (Join-Path $skillSrc '*') -Destination $skillDst -Recurse -Force
 Write-Host "[OK] skill project-specifications -> $skillDst"
 
 # 4. Генератор проектов -> <config>/bin/new-project.ps1
-$genSrc = Join-Path $repo 'bin\new-project.ps1'
 $binDir = Join-Path $configDir 'bin'
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
-Copy-Item -LiteralPath $genSrc -Destination (Join-Path $binDir 'new-project.ps1') -Force
+foreach ($name in @('new-project.ps1', 'project-orchestration.ps1')) {
+    $scriptText = [System.IO.File]::ReadAllText((Join-Path $repo "bin\$name"))
+    $scriptDst = Join-Path $binDir $name
+    Backup-IfDifferent $scriptDst $scriptText | Out-Null
+    # Preserve the source encoding (including BOM required by Windows PS 5.1).
+    Copy-Item -LiteralPath (Join-Path $repo "bin\$name") -Destination $scriptDst -Force
+}
 Write-Host "[OK] new-project.ps1 -> $(Join-Path $binDir 'new-project.ps1')"
 
 Write-Host ""

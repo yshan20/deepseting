@@ -17,6 +17,14 @@ $repo = Split-Path -Parent $PSScriptRoot
 $install = Join-Path $repo 'install.ps1'
 $generator = Join-Path $repo 'bin\new-project.ps1'
 $tmpRoot = Join-Path $PSScriptRoot '.tmp'
+$expectedTmp = [System.IO.Path]::GetFullPath((Join-Path $repo 'tests/.tmp'))
+if ([System.IO.Path]::GetFullPath($tmpRoot) -ne $expectedTmp) { throw 'Unexpected test cleanup path' }
+if (Test-Path -LiteralPath $tmpRoot) {
+    if ((Resolve-Path -LiteralPath $tmpRoot).Path -ne $expectedTmp -or
+        ((Get-Item -LiteralPath $tmpRoot).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+        throw 'Unsafe test cleanup target'
+    }
+}
 
 if (Test-Path -LiteralPath $tmpRoot) { Remove-Item -LiteralPath $tmpRoot -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $tmpRoot | Out-Null
@@ -193,6 +201,8 @@ $commitBoth = Invoke-Git $proj @('commit', '-m', 'plan and progress')
 Check 'план вместе с прогрессом принят' ($commitBoth.Code -eq 0) $commitBoth.Out
 
 # --- Итог --------------------------------------------------------------------
+. (Join-Path $PSScriptRoot 'orchestration-tests.ps1')
+
 Write-Host ""
 Write-Host "Пройдено: $($script:passed), провалено: $($script:failed)"
 
