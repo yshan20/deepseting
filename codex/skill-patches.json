@@ -1,0 +1,256 @@
+[
+  {
+    "scope": "AgentSkills",
+    "path": "modern-web-guidance/SKILL.md",
+    "replacements": [
+      {
+        "before": "description: |\n  Search tool for modern web development best practices. MANDATORY: Execute FIRST for all HTML/CSS and clientside JS tasks. Do NOT skip — web APIs evolve rapidly and training weights contain obsolete patterns.\n\n  Trigger immediately for:\n  - UI/Layout: Modals, dialogs, popovers, Glassmorphism/backdrop-filters, anchor positioning, container queries, `:has()`, `:user-valid`.\n  - Scroll/Motion: View Transitions, Scroll-driven animations, scroll parallax/reveals.\n  - Performance: CWV (LCP, INP), content-visibility, Fetch Priority, image optimization.\n  - System/APIs: Local filesystem access, WebUSB, WebSockets sync, WebAssembly widgets.\n  - Frameworks: Adapting layout/styles in React, Vue, Angular.\n  - General Frontend: Forms, autofill, advanced inputs, custom scrollbars, modern component states, etc.\n\n  DO NOT trigger for:\n  - Backend: Database SQL, ORMs, Express API routes.\n  - Pipelines: CI/CD deployment, Docker, Actions.\n  - Generic: Local scripts (Python/Go tools), ESLint, Git.",
+        "after": "description: Найти руководства при выборе нового браузерного API, проверке совместимости или неизвестного frontend-паттерна. Простые правки существующего решения не требуют этого навыка."
+      },
+      {
+        "before": "Must use this skill:\n- At the **start** of implementing any web feature.\n- Before creating a new component, to check if a standardized pattern already exists.\n- To avoid implementing ad-hoc solutions or loading large dependencies unnecessarily.",
+        "after": "Use when selecting a new browser API, resolving compatibility uncertainty, or choosing an unfamiliar frontend pattern. Inspect the existing implementation and project requirements first. Skip for local changes to an established solution."
+      },
+      {
+        "before": "Search with an action-oriented query summarizing what you want to achieve using the `search` command. Run `modern-web-guidance` directly with `npx`.",
+        "after": "Search for the unresolved question using the `search` command. Prefer an installed/cached version compatible with the project; use the commands below when the package is unavailable. Do not refresh the package for every edit."
+      },
+      {
+        "before": "-   Always search **first** to find the most relevant guides.",
+        "after": "-   Search only for relevant unresolved questions. Reuse an already retrieved guide while its assumptions remain valid."
+      },
+      {
+        "before": "-   If the `npx -y modern-web-guidance…` command hangs, you may be offline. Try running again in offline\n    mode: `npx --offline …`.",
+        "after": "-   Bound package/search attempts with a timeout. If unavailable, use applicable local guidance or official documentation and continue work that does not depend on the missing information."
+      }
+    ]
+  },
+  {
+    "scope": "AgentSkills",
+    "path": "ai-ready-architecture/SKILL.md",
+    "replacements": [
+      {
+        "before": "description: Architecture and module-design discipline for codebases written or modified primarily by AI agents. Apply this whenever writing new code, refactoring, reviewing a diff, designing a module or service, structuring directories, or deciding where a piece of logic should live. The guiding principle is \"sinks, not pipes\" — components should contain their effects so an agent can reason about them in isolation without tracing cascades through the rest of the system. Use it even when the user only says \"add a function\", \"fix this\", \"wire these up\", or \"where should this go\" — those are exactly the moments architecture quietly decays. Especially relevant for backend services, APIs, data layers, and any system with side effects (DB writes, queues, events, notifications, external calls).",
+        "after": "description: Design or review module boundaries, public contracts, and side effects. Use for structural changes or coupling problems; local edits that preserve those boundaries do not require this skill."
+      },
+      {
+        "before": "When writing or reviewing, treat these as **not AI-ready** and fix them:",
+        "after": "When reviewing, report these issues without editing unless changes were requested. During implementation, fix only issues necessary for the authorized task; record other improvements separately:"
+      },
+      {
+        "before": "- First trace the blast radius. If the thing you're touching is a pipe, the change is riskier than it looks — surface the hidden chain before editing, and prefer converting the cascade into explicit orchestration over adding another hidden link.",
+        "after": "- Inspect the affected dependencies before editing. Preserve established architecture unless the requested behavior requires changing it; do not turn a local fix into an unsolicited refactor."
+      },
+      {
+        "before": "- [ ] Do tests exercise real integration paths, not just isolated units?",
+        "after": "- [ ] Do the checks cover the affected behavior and relevant integration risks? Repeat successful checks only after changes, failures, or new evidence justify it."
+      }
+    ]
+  },
+  {
+    "scope": "AgentSkills",
+    "path": "game-creation-patterns/SKILL.md",
+    "replacements": [
+      {
+        "before": "Подтверждённые настройки: свежий поиск перед каждой новой задачей, баланс\nкачества и скорости.",
+        "after": "Подтверждённые настройки: баланс качества и скорости, повторное использование\nпроверенного рецепта при совпадении условий."
+      },
+      {
+        "before": "3. Перед каждой новой задачей выполни свежий поиск в интернете, даже если\n   подход уже есть в базе. Найди и **открой** первичные",
+        "after": "3. Свежий поиск нужен при новом подходе, смене версии/инструмента, существенной\n   неопределённости или неудаче. Проверенный рецепт повторно используй при совпадении\n   условий. Когда поиск нужен, найди и **открой** первичные"
+      },
+      {
+        "before": "для выбора и проверяемого следующего шага. База дополняет свежий поиск перед\nкаждой новой задачей, но не заменяет его. Если сеть недоступна, явно сообщи,",
+        "after": "для выбора и проверяемого следующего шага. Не повторяй поиск без изменения условий\nили новых вопросов. Если необходимый поиск недоступен из-за сети, явно сообщи,"
+      }
+    ]
+  },
+  {
+    "scope": "AgentSkills",
+    "path": "find-skills/SKILL.md",
+    "replacements": [
+      {
+        "before": "description: Helps users discover and install agent skills when they ask questions like \"how do I do X\", \"find a skill for X\", \"is there a skill that can...\", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.",
+        "after": "description: Find or install an agent skill when explicitly requested, or when a concrete capability gap prevents completing the task with available tools."
+      },
+      {
+        "before": "Use this skill when the user:\n\n- Asks \"how do I do X\" where X might be a common task with an existing skill\n- Says \"find a skill for X\" or \"is there a skill for X\"\n- Asks \"can you do X\" where X is a specialized capability\n- Expresses interest in extending agent capabilities\n- Wants to search for tools, templates, or workflows\n- Mentions they wish they had help with a specific domain (design, testing, deployment, etc.)\n\n",
+        "after": "Use for an explicit skill discovery/install request, or an established capability gap. Ordinary how-to and implementation requests should be handled directly with available capabilities.\n\n"
+      },
+      {
+        "before": "### Step 2: Check the Leaderboard First",
+        "after": "### Optional: Consult the Leaderboard"
+      },
+      {
+        "before": "Before running a CLI search, check the [skills.sh leaderboard](https://skills.sh/) to see if a well-known skill already exists for the domain. The leaderboard ranks skills by total installs, surfacing the most popular and battle-tested options.",
+        "after": "For broad discovery, the [skills.sh leaderboard](https://skills.sh/) can suggest candidates. A targeted CLI search is sufficient for a specific need; popularity alone does not establish quality."
+      },
+      {
+        "before": "If the leaderboard doesn't cover the user's need, run the find command:",
+        "after": "For a specific need, run the find command directly:"
+      },
+      {
+        "before": "When a user asks for help with something, identify:",
+        "after": "For a skill discovery request or confirmed capability gap, identify:"
+      }
+    ]
+  },
+  {
+    "scope": "AgentSkills",
+    "path": "text-to-lottie/SKILL.md",
+    "replacements": [
+      {
+        "before": "description: Author a Lottie (Bodymovin) JSON animation that renders in a local skia player. Use whenever the user asks to create, generate, edit, or fix a Lottie animation, or asks for \"an animation\" to load.",
+        "after": "description: Create or edit Lottie/Bodymovin JSON animations. Apply Skottie-specific guidance only for a Skottie target; generic animation requests do not imply Lottie."
+      },
+      {
+        "before": "This app renders Lottie with **Skia's Skottie** module (via `canvaskit-wasm`),\nnot the JS `lottie-web` runtime. Follow the rules below and\nverify the result.",
+        "after": "Determine the target renderer from the project or request. This guide contains **Skia Skottie** (`canvaskit-wasm`) recipes; its slots and player controls apply only to that target. Preserve an existing renderer and output layout."
+      },
+      {
+        "before": "The deliverable is not just `public/lottie.json`: the viewer should be set up\nand the animation should be previewable in the browser. If the player project is\nmissing, create it; if it exists, install/update dependencies as needed, start\nthe dev server, and open the local preview URL for verification.",
+        "after": "Deliver the requested animation. Use the existing target player for validation. Create a separate viewer only when requested or necessary for validation; do not add a player, dependencies, or server merely to deliver JSON."
+      },
+      {
+        "before": "**Always use the official GitHub player project — never hand-roll a custom\nviewer.** This skill's JSON rules (slots, the properties panel, the `?frame=`\nURL controls, the Skottie wasm wiring) only hold inside that exact project. Do\n**not** build your own HTML page, swap in `lottie-web`, or scaffold a bespoke\ncanvas setup — any of those will silently diverge from how this player renders\nand the verification steps below won't apply. If the player project isn't\nalready on this machine, scaffold a fresh copy of the repo with **degit**:",
+        "after": "When a separate Skottie viewer is needed, this GitHub player provides the slots, properties panel, and `?frame=` controls described below. These player-specific steps do not apply to other targets. Reuse an existing installation; if needed, scaffold with **degit**:"
+      },
+      {
+        "before": "Then open the printed local URL. If you already have the project, just\n`npm install && npm run dev`.",
+        "after": "When previewing, open the printed local URL. Install dependencies only if missing or changed; start the server only if it is not already running."
+      },
+      {
+        "before": "- Write the animation JSON to **`public/lottie.json`**. That is the only file",
+        "after": "- In this optional viewer, write JSON to **`public/lottie.json`**. That is the only file"
+      },
+      {
+        "before": "### Required: a background-color control on every animation",
+        "after": "### Optional: a background-color control"
+      },
+      {
+        "before": "**Every animation you produce must expose at least one control for the\nbackground color.** The player does not paint a composition background of its\nown, so add a full-composition background layer as the **last** entry in",
+        "after": "Add a background control only when requested and supported by the target player.\nPreserve transparency when required. For an editable background, add a\nfull-composition background layer as the **last** entry in"
+      },
+      {
+        "before": "6. A background-color control is present: a full-composition background layer\n   (last in `layers`) with a slotted fill (e.g. `bgColor`) and a matching\n   `controls.json` label.",
+        "after": "6. If requested, a background control works in the target player; otherwise preserve the requested background or transparency."
+      },
+      {
+        "before": "7. The project is the official GitHub player (scaffolded via degit), not a\n   custom/hand-rolled viewer.",
+        "after": "7. Validate against the existing target renderer; use the optional viewer only when appropriate."
+      },
+      {
+        "before": "8. If the dev server is running, just save — it hot-reloads. Otherwise start it\n   with `npm run dev`. A blank canvas (no error) → re-check the group wrapping.",
+        "after": "8. When using the optional viewer, reuse a running server. For a blank Skottie canvas, check the group wrapping."
+      },
+      {
+        "before": "9. The player is running and the preview URL has been opened or reported. When a\n   browser tool is available, verify the page shows a nonblank rendered\n   animation before finalizing — pin a key frame via the URL (see \"Controlling\n   playback from a browser agent\"), e.g. open `?frame=60&paused=1` and\n   screenshot, rather than dragging the on-screen slider.",
+        "after": "9. Inspect representative rendered frames when a target player is available. For the optional viewer, pin frames via `?frame=60&paused=1`. If only structural validation is possible, state that limit; do not claim visual verification."
+      },
+      {
+        "before": "1. The file is valid JSON (no comments, no trailing commas). Validate with\n   `node -e \"JSON.parse(require('fs').readFileSync('public/lottie.json','utf8'))\"`.",
+        "after": "1. Validate the requested output file as JSON (no comments or trailing commas). Use the actual project path; `public/lottie.json` is specific to the optional viewer."
+      }
+    ]
+  },
+  {
+    "scope": "Codex",
+    "path": "plugins/cache/unity-agent-plugin/unity/0.1.6-beta/skills/generate-editor-search-query/SKILL.md",
+    "replacements": [
+      {
+        "before": "description: Generates Unity Search / Quick Search queries and opens the Unity Search window for read-only Unity Editor asset or scene-object lookup requests. Always use when the user asks to find, search, show, locate, filter, look up, query, or list concrete assets or scene objects in the current project or scene, even if Unity Search is not named. Covers materials, textures, prefabs, scenes, scripts, shaders, GameObjects, components, Lights, Cameras, UI objects, labels, paths, references, selected or named assets, and asset types. Also use when the user explicitly mentions Unity Search, Quick Search, Search window, open Search, or asks what Unity Search query to use. Do not use for general project overview, project structure, folder-purpose summaries, gameplay/system explanations, how-to programming questions, web search, repository text search, build logs, package installation, menu or settings search, modifying results, or non-Unity filesystem search unless the user explicitly asks to use Unity Search.",
+        "after": "description: Build and open Unity Search queries for concrete project assets or scene objects. Use for asset lookup or explicit Unity Search requests; exclude general explanations and repository text searches."
+      },
+      {
+        "before": "If the user asks to act on results, first open Search or provide the query, then ask for confirmation before any separate modifying skill or workflow.",
+        "after": "If the request already authorizes changes to the results, continue through the relevant modifying workflow within that scope. Ask only when the target or a material decision remains ambiguous."
+      },
+      {
+        "before": "- For requests that mix Search with repair work, generate and open the query first; do not modify results unless the user explicitly confirms a separate follow-up action.",
+        "after": "- For requests combining Search and repair, generate the query and continue the already authorized repair with the relevant workflow."
+      },
+      {
+        "before": "If the user refers to \"this\", \"selected\", or \"current\" without an attached asset, scene object, visible name, or path, ask for the name/path instead of inventing one.",
+        "after": "For \"this\", \"selected\", or \"current\", use known context or inspect the selection through an available Editor connection. Ask for a name/path only if the target remains unresolved."
+      },
+      {
+        "before": "- For selected/current wording, use the known selected asset name or path only if it is present in the chat context; otherwise ask for it.",
+        "after": "- For selected/current wording, use known context or inspect the Editor selection; ask only if unresolved."
+      }
+    ]
+  },
+  {
+    "scope": "Codex",
+    "path": "plugins/cache/unity-agent-plugin/unity/0.1.6-beta/skills/ui-uitk/SKILL.md",
+    "replacements": [
+      {
+        "before": "There is no way to validate UXML or USS from outside the Editor — Unity parses these\nfiles on import and reports problems in the Console. Write the files, then have the\nuser check the result.",
+        "after": "Unity parses UXML and USS on import and reports problems in the Console. Use an available Editor connection to trigger import and read diagnostics. Ask the user for help only when the connection or required visual inspection is unavailable."
+      },
+      {
+        "before": "2. Ask the user to focus the Unity Editor. That triggers a reimport of the changed\n   assets.\n3. Ask them to report anything in the Console. UXML parse errors name the file and\n   line; USS problems appear as warnings about unknown properties or selectors.\n4. Fix what they report and repeat from step 1.",
+        "after": "2. Through the available Editor connection, import the changed assets.\n3. Read the Console/log diagnostics yourself where possible. UXML parse errors identify files and lines; USS warnings identify unsupported properties/selectors.\n4. Fix errors caused by the change and recheck affected assets. If access is unavailable, request only the missing observation from the user."
+      },
+      {
+        "before": "- Re-read `references/uss-guide.md` and `references/common-issues.md` before writing,\n  rather than after an error comes back.",
+        "after": "- Read relevant sections of `references/uss-guide.md` or `references/common-issues.md` when an unfamiliar feature or error requires them; reuse unchanged guidance."
+      },
+      {
+        "before": "  in the Console at all, so the user has to eyeball the UI.",
+        "after": "  in the Console at all; inspect the rendered UI through available tools or request the missing visual observation."
+      }
+    ]
+  },
+  {
+    "scope": "Codex",
+    "path": "skills/.system/openai-docs/SKILL.md",
+    "replacements": [
+      {
+        "before": "**First substantive action:** Search the user's exact requested official OpenAI documentation topic and any explicitly named model using a concise, topic-specific query of 2-6 essential terms. When an already-available direct official documentation search and page-retrieval capability is present, use it first: search, then fetch or open the matching official page before general web search. Otherwise, immediately use official-domain web search, then actually open or fetch the relevant official page. Complete this source order before reading a reference, inspecting local or repository files, running a Codex manual or model resolver, drafting a plan, or answering from memory. Use the actual fetched page, not a search snippet or an unopened link. If one official search or page does not establish the answer, search another appropriate official domain and actually open or fetch the result. Preserve the exact requested model; never substitute a newer model.",
+        "after": "**Source order:** Read applicable local instructions and inspect relevant local configuration/code first for implementation or troubleshooting. For documentation questions, open an explicitly supplied official URL directly. Otherwise search the exact topic/model with a concise query, using an available official documentation search before official-domain web search, then fetch the relevant page. Use the actual fetched page, not a snippet. Search again only if the source leaves a material question unresolved. Preserve the exact requested model. This source order does not override repository instructions."
+      },
+      {
+        "before": "**Only exception:**",
+        "after": "**Broad synthesis route:**"
+      }
+    ]
+  },
+  {
+    "scope": "Workshop",
+    "path": "skill/SKILL.md",
+    "replacements": [
+      {
+        "before": "Подтверждённые настройки: свежий поиск перед каждой новой задачей, баланс\nкачества и скорости.",
+        "after": "Подтверждённые настройки: баланс качества и скорости, повторное использование\nпроверенного рецепта при совпадении условий."
+      },
+      {
+        "before": "3. Перед каждой новой задачей выполни свежий поиск в интернете, даже если\n   подход уже есть в базе. Найди и **открой** первичные",
+        "after": "3. Свежий поиск нужен при новом подходе, смене версии/инструмента, существенной\n   неопределённости или неудаче. Проверенный рецепт повторно используй при совпадении\n   условий. Когда поиск нужен, найди и **открой** первичные"
+      },
+      {
+        "before": "для выбора и проверяемого следующего шага. База дополняет свежий поиск перед\nкаждой новой задачей, но не заменяет его. Если сеть недоступна, явно сообщи,",
+        "after": "для выбора и проверяемого следующего шага. Не повторяй поиск без изменения условий\nили новых вопросов. Если необходимый поиск недоступен из-за сети, явно сообщи,"
+      }
+    ]
+  },
+  {
+    "scope": "Workshop",
+    "path": "README.md",
+    "replacements": [
+      {
+        "before": "Подтверждённый режим: свежий поиск перед каждой новой задачей, даже при наличии\nкарточки в базе. Приоритет — баланс качества и скорости, включая подготовку и",
+        "after": "Подтверждённый режим: проверенный рецепт можно повторно использовать при совпадении\nусловий. Свежий поиск нужен при новом подходе, смене версии/инструмента, существенной\nнеопределённости или неудаче. Приоритет — баланс качества и скорости, включая подготовку и"
+      }
+    ]
+  },
+  {
+    "scope": "Workshop",
+    "path": "install.py",
+    "replacements": [
+      {
+        "before": "            'Это действует и в текстовых, и в голосовых задачах. Перед каждой новой задачей '\n            'обязателен свежий поиск первичных источников, даже при наличии подхода в базе; '\n",
+        "after": "            'Это действует и в текстовых, и в голосовых задачах. Проверенный рецепт можно '\n            'повторно использовать при совпадении условий. Свежий поиск нужен при новом подходе, '\n            'смене версии/инструмента, существенной неопределённости или неудаче; '\n"
+      }
+    ]
+  }
+]

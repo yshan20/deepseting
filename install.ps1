@@ -1,6 +1,6 @@
-# install.ps1 — installs the portable Codex harness into ~/.codex.
+﻿# install.ps1 — installs the portable Codex harness into ~/.codex.
 [CmdletBinding()]
-param([string]$ConfigDir)
+param([string]$ConfigDir, [switch]$ApplySkillPatches, [string]$AgentSkillsDir)
 
 $ErrorActionPreference = 'Stop'
 $configDir = if ($ConfigDir) { $ConfigDir } elseif ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' }
@@ -50,14 +50,23 @@ Write-Host "[OK] config.toml -> $settingsDst"
 
 $skillSrc = Join-Path $payload 'skills\project-specifications'
 $skillDst = Join-Path $configDir 'skills\project-specifications'
-if (Test-Path -LiteralPath $skillDst) { Remove-Item -LiteralPath $skillDst -Recurse -Force }
-New-Item -ItemType Directory -Force -Path $skillDst | Out-Null
-Copy-Item -Path (Join-Path $skillSrc '*') -Destination $skillDst -Recurse -Force
+foreach ($file in Get-ChildItem -LiteralPath $skillSrc -Recurse -File) {
+    $relative = $file.FullName.Substring($skillSrc.Length).TrimStart('\', '/')
+    $destination = Join-Path $skillDst $relative
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+    $skillText = [IO.File]::ReadAllText($file.FullName).Replace("`r`n", "`n")
+    Backup-IfDifferent $destination $skillText
+    Write-Utf8NoBom $destination $skillText
+}
 Write-Host "[OK] skill project-specifications -> $skillDst"
 
 $binDir = Join-Path $configDir 'bin'
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 Copy-Item -LiteralPath (Join-Path $repo 'bin\new-project.ps1') -Destination (Join-Path $binDir 'new-project.ps1') -Force
+Copy-Item -LiteralPath (Join-Path $repo 'bin\project-orchestration.ps1') -Destination (Join-Path $binDir 'project-orchestration.ps1') -Force
 Write-Host "[OK] new-project.ps1 -> $(Join-Path $binDir 'new-project.ps1')"
+if ($ApplySkillPatches) {
+    & (Join-Path $repo 'bin\update-skill-guidance.ps1') -ConfigDir $configDir -AgentSkillsDir $AgentSkillsDir
+}
 Write-Host 'Готово. Перезапусти Codex, чтобы настройки подхватились.'
 Write-Host 'Вход в аккаунт: codex login (секреты в репозитории не хранятся).'

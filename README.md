@@ -10,13 +10,16 @@
 | `codex/config.toml` | Управляемые настройки модели, рассуждения, песочницы и поиска. |
 | `codex/skills/project-specifications/` | Навык ведения спецификаций и шаблоны документов. |
 | `bin/new-project.ps1` | Генератор спецификаций и pre-commit-хука нового проекта. |
+| `bin/project-orchestration.ps1` | Выбор STANDARD_DEEPSETING или Game Master Plan без изменения проекта. |
+| `codex/skill-patches.json` | Адресные исправления установленных сторонних Skills. |
+| `bin/update-skill-guidance.ps1` | Проверка и применение этих исправлений с резервными копиями. |
 | `install.ps1` | Установщик в каталог Codex с резервными копиями. |
 | `tests/` | Интеграционные тесты установщика, генератора и хука. |
 
 ## Установка
 
 ```powershell
-git clone https://github.com/yshan20/deepseting.git
+git clone --branch feat/codex-harness https://github.com/yshan20/deepseting.git
 cd deepseting
 pwsh -File install.ps1
 ```
@@ -48,6 +51,22 @@ pwsh -File ~/.codex/bin/new-project.ps1 <путь-к-проекту> -Feature <�
 ```
 
 Генератор создаёт `README.md`, `docs/SPEC.md`, `docs/plan.md`, `PROGRESS.md`, каталог `docs/features/` и pre-commit-хук.
+Существующие документы не перезаписываются. В режиме Game Master Plan генератор
+сохраняет текущую структуру и не создаёт стандартные документы и hook.
+
+## Исправления Skills после аудита
+
+Обоснование: [Rethinking skills and prompts for GPT-6 Astra](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra).
+Список изменений — в `codex/README.md`, команды проверки и применения — в `bin/README.md`.
+Обычная установка не трогает сторонние Skills. Для их явного обновления при установке:
+
+```powershell
+pwsh -File install.ps1 -ApplySkillPatches -AgentSkillsDir "$HOME/.agents/skills"
+```
+
+Для изменения только Skills используй `bin/update-skill-guidance.ps1`: он не меняет
+config.toml, модель, MCP и правила AGENTS.md. Машинные дополнения к AGENTS.md нужно
+сохранять при переносе глобальных правил; полный install.ps1 заменяет его с backup.
 
 ## Тесты
 

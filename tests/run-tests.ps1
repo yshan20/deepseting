@@ -17,6 +17,9 @@ $repo = Split-Path -Parent $PSScriptRoot
 $install = Join-Path $repo 'install.ps1'
 $generator = Join-Path $repo 'bin\new-project.ps1'
 $tmpRoot = Join-Path $PSScriptRoot '.tmp'
+$expectedTmp = [IO.Path]::GetFullPath((Join-Path $repo 'tests\.tmp'))
+if ([IO.Path]::GetFullPath($tmpRoot) -ne $expectedTmp) { throw 'Test cleanup path escaped tests/.tmp' }
+if ((Test-Path -LiteralPath $tmpRoot) -and (Get-Item -LiteralPath $tmpRoot -Force).Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'Refusing test cleanup through a link' }
 
 if (Test-Path -LiteralPath $tmpRoot) { Remove-Item -LiteralPath $tmpRoot -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $tmpRoot | Out-Null
@@ -102,6 +105,15 @@ Write-Host "-- повторная установка"
 $again = [System.IO.File]::ReadAllText((Join-Path $cfgMerge 'config.toml'))
 Check 'повторная установка не портит настройки' ($again -match 'command = "example-server"' -and ([regex]::Matches($again, 'deepseting managed defaults >>>')).Count -eq 1)
 Check 'лишних резервных копий нет' ((Get-BackupCount $cfgMerge 'config.toml') -eq 1) "копий: $(Get-BackupCount $cfgMerge 'config.toml')"
+
+$installedSkill = Join-Path $cfgMerge 'skills/project-specifications'
+Set-Text (Join-Path $installedSkill 'local-notes.md') 'user notes'
+Set-Text (Join-Path $installedSkill 'SKILL.md') 'user previous instructions'
+& $install -ConfigDir $cfgMerge | Out-Null
+Check 'локальные файлы навыка сохраняются' ([IO.File]::ReadAllText((Join-Path $installedSkill 'local-notes.md')) -eq 'user notes')
+Check 'изменённый skill сохранён в backup' ((Get-BackupCount $installedSkill 'SKILL.md') -eq 1)
+& $install -ConfigDir $cfgMerge | Out-Null
+Check 'повторная установка skill не плодит backup' ((Get-BackupCount $installedSkill 'SKILL.md') -eq 1)
 
 # --- 4. Каркас нового проекта -------------------------------------------------
 Write-Host "-- каркас проекта"
@@ -189,6 +201,54 @@ Add-Content -LiteralPath (Join-Path $proj 'PROGRESS.md') -Value '- Пункт 3 
 Invoke-Git $proj @('add', 'PROGRESS.md') | Out-Null
 $commitBoth = Invoke-Git $proj @('commit', '-m', 'plan and progress')
 Check 'план вместе с прогрессом принят' ($commitBoth.Code -eq 0) $commitBoth.Out
+
+# --- 10. Повторный scaffolding сохраняет документы --------------------------
+Set-Text (Join-Path $proj 'PROGRESS.md') 'existing progress'
+& $generator -Path $proj -Feature another | Out-Null
+Check 'генератор сохраняет существующий прогресс' ([IO.File]::ReadAllText((Join-Path $proj 'PROGRESS.md')) -eq 'existing progress')
+Check 'новая функция добавлена' (Test-Path -LiteralPath (Join-Path $proj 'docs/features/another.md'))
+
+# --- 11. Game Master Plan, включая установленный генератор ------------------
+$game = Join-Path $tmpRoot 'game'
+Set-Text (Join-Path $game 'specs/master/ACTIVE_STAGE.md') 'stage one'
+Invoke-Git $game @('init', '-q') | Out-Null
+& (Join-Path $cfgFresh 'bin/new-project.ps1') -Path $game | Out-Null
+Check 'Game Master Plan не получает стандартные документы' (-not (Test-Path -LiteralPath (Join-Path $game 'docs')) -and -not (Test-Path -LiteralPath (Join-Path $game '.githooks')))
+Set-Text (Join-Path $game 'CLAUDE.md') 'PROJECT_ORCHESTRATION_MODE: STANDARD_DEEPSETING'
+& $generator -Path $game | Out-Null
+Check 'явный STANDARD имеет приоритет над sentinel' (Test-Path -LiteralPath (Join-Path $game 'docs/SPEC.md'))
+$invalid = Join-Path $tmpRoot 'invalid-mode'
+Set-Text (Join-Path $invalid 'CLAUDE.md') "PROJECT_ORCHESTRATION_MODE: GAME_MASTER_PLAN`nPROJECT_ORCHESTRATION_MODE: STANDARD_DEEPSETING"
+Invoke-Git $invalid @('init', '-q') | Out-Null
+$rejected = $false
+try { & $generator -Path $invalid | Out-Null } catch { $rejected = $true }
+Check 'несколько режимов отклонены до scaffolding' ($rejected -and -not (Test-Path -LiteralPath (Join-Path $invalid 'docs')))
+
+# --- 12. Патчи Skills: реальные файлы, повторный запуск, конфликт ------------
+$patcher = Join-Path $repo 'bin/update-skill-guidance.ps1'
+$patchCfg = Join-Path $tmpRoot 'patch-config'
+$patchManifest = Join-Path $tmpRoot 'patches.json'
+$patchFile = Join-Path $patchCfg 'skills/example/SKILL.md'
+Set-Text $patchFile 'prefix old guidance suffix'
+Set-Text $patchManifest '[{"scope":"Codex","path":"skills/example/SKILL.md","replacements":[{"before":"old guidance","after":"new guidance"}]}]'
+& $patcher -ConfigDir $patchCfg -ManifestPath $patchManifest -CheckOnly | Out-Null
+Check 'CheckOnly не меняет skill' ([IO.File]::ReadAllText($patchFile) -eq 'prefix old guidance suffix')
+& $patcher -ConfigDir $patchCfg -ManifestPath $patchManifest | Out-Null
+Check 'патч сохраняет окружающий текст' ([IO.File]::ReadAllText($patchFile) -eq 'prefix new guidance suffix')
+$backupDir = Split-Path -Parent $patchFile
+Check 'патч сохраняет backup' ((Get-BackupCount $backupDir 'SKILL.md') -eq 1)
+& $patcher -ConfigDir $patchCfg -ManifestPath $patchManifest | Out-Null
+Check 'повторный патч не плодит backup' ((Get-BackupCount $backupDir 'SKILL.md') -eq 1)
+Set-Text $patchFile 'prefix old guidance suffix'
+Set-Text (Join-Path $patchCfg 'skills/changed/SKILL.md') 'unrecognized version'
+Set-Text $patchManifest '[{"scope":"Codex","path":"skills/example/SKILL.md","replacements":[{"before":"old guidance","after":"new guidance"}]},{"scope":"Codex","path":"skills/changed/SKILL.md","replacements":[{"before":"expected version","after":"updated version"}]}]'
+$rejected = $false
+try { & $patcher -ConfigDir $patchCfg -ManifestPath $patchManifest | Out-Null } catch { $rejected = $true }
+Check 'конфликт второго файла предотвращает запись первого' ($rejected -and [IO.File]::ReadAllText($patchFile) -eq 'prefix old guidance suffix')
+Set-Text $patchManifest '[{"scope":"Codex","path":"../outside.md","replacements":[{"before":"old","after":"new"}]}]'
+$rejected = $false
+try { & $patcher -ConfigDir $patchCfg -ManifestPath $patchManifest | Out-Null } catch { $rejected = $true }
+Check 'патч не выходит за выбранный каталог' $rejected
 
 # --- Итог --------------------------------------------------------------------
 Write-Host ""
