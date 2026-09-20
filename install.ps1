@@ -43,11 +43,13 @@ function Write-Utf8NoBom([string]$Path, [string]$Text) {
     [System.IO.File]::WriteAllText($Path, $Text, $utf8)
 }
 
-# Резервные копии складываются в <config>/backups, а не рядом с оригиналом.
+# Резервные копии складываются в <config>/backups/deepseting, а не рядом с оригиналом.
 # Копия внутри skills/ загружается Claude Code как ещё один скилл с почти тем же
-# описанием; копия внутри rules/ засоряет каталог правил. Путь внутри backups
-# повторяет путь внутри каталога настроек, поэтому откат — это обычное копирование назад.
-$backupRoot = Join-Path $configDir 'backups'
+# описанием; копия внутри rules/ засоряет каталог правил. Отдельный подкаталог нужен
+# потому, что сам <config>/backups Claude Code использует под свои .claude.json.backup.*:
+# чистка копий обвязки не должна задевать их. Путь внутри повторяет путь внутри каталога
+# настроек, поэтому откат — это обычное копирование назад.
+$backupRoot = Join-Path $configDir 'backups\deepseting'
 
 function Get-BackupPath([string]$Path, [string]$Stamp) {
     $full = [System.IO.Path]::GetFullPath($Path)

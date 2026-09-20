@@ -1,4 +1,4 @@
-# Integration cases, loaded by run-tests.ps1 with its isolated fixtures/helpers.
+﻿# Integration cases, loaded by run-tests.ps1 with its isolated fixtures/helpers.
 . (Join-Path $repo 'bin/project-orchestration.ps1')
 
 Write-Host '-- orchestration router and initialization'
@@ -125,9 +125,9 @@ Check 'router installed' (Test-Path -LiteralPath (Join-Path $cfgFresh 'bin/proje
 Check 'game reference installed' (Test-Path -LiteralPath (Join-Path $cfgFresh 'skills/project-specifications/references/game-master-plan.md'))
 Set-Text (Join-Path $cfgMerge 'skills/project-specifications/local.md') 'local customization'
 & $install -ConfigDir $cfgMerge | Out-Null
-# Копия навыка лежит в backups/skills, а не в skills: внутри skills Claude Code
+# Копия навыка лежит в backups/deepseting/skills, а не в skills: внутри skills Claude Code
 # подхватил бы её как ещё один скилл с почти тем же описанием.
-$skillBackupDir = Join-Path $cfgMerge 'backups/skills'
+$skillBackupDir = Join-Path $cfgMerge 'backups/deepseting/skills'
 $backups = @(Get-ChildItem -LiteralPath $skillBackupDir -Directory -Filter 'project-specifications.bak-*' -ErrorAction SilentlyContinue)
 Check 'local skill edits backed up' ($backups.Count -eq 1 -and [IO.File]::ReadAllText((Join-Path $backups[0].FullName 'local.md')) -eq 'local customization')
 Check 'skill backup is not installed as a skill' (@(Get-ChildItem -LiteralPath (Join-Path $cfgMerge 'skills') -Directory -Filter '*.bak-*' -ErrorAction SilentlyContinue).Count -eq 0)

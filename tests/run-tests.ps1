@@ -64,9 +64,9 @@ function Read-Json([string]$Path) {
     return [System.IO.File]::ReadAllText($Path) | ConvertFrom-Json
 }
 
-# Копии лежат в <config>/backups и повторяют путь внутри каталога настроек.
+# Копии лежат в <config>/backups/deepseting и повторяют путь внутри каталога настроек.
 function Get-BackupCount([string]$ConfigDir, [string]$Relative) {
-    $dir = Join-Path $ConfigDir 'backups'
+    $dir = Join-Path $ConfigDir 'backups\deepseting'
     $parent = Split-Path -Parent $Relative
     if ($parent) { $dir = Join-Path $dir $parent }
     $leaf = Split-Path -Leaf $Relative
@@ -142,7 +142,7 @@ Write-Host "-- повторная установка"
 $again = Read-Json (Join-Path $cfgMerge 'settings.json')
 Check 'повторная установка не портит настройки' ($again.statusLine.command -eq 'echo hi' -and $again.model -eq 'opus')
 Check 'лишних резервных копий нет' ((Get-BackupCount $cfgMerge 'settings.json') -eq 1) "копий: $(Get-BackupCount $cfgMerge 'settings.json')"
-Check 'копии сложены в backups/' (Test-Path -LiteralPath (Join-Path $cfgMerge 'backups'))
+Check 'копии сложены в backups/deepseting' (Test-Path -LiteralPath (Join-Path $cfgMerge 'backups\deepseting'))
 Check 'копии не засоряют каталоги обвязки' ((Get-StrayBackupCount $cfgMerge) -eq 0) "найдено копий рядом с оригиналами: $(Get-StrayBackupCount $cfgMerge)"
 
 # --- 4. Каркас нового проекта -------------------------------------------------
