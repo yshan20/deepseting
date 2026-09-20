@@ -1,9 +1,9 @@
-# План: Game Master Plan compatibility
+# План: чистка обвязки от дублей
 
 | Шаг | Критерий готовности | Чем проверяется |
 | --- | --- | --- |
-| 1. Исследовать обвязку и текущие тесты | Все места standard workflow найдены | README, rg, git status/log |
-| 2. Добавить router, guard, правила и reference | Режимы и уровни решений описаны и реализованы | Ревью diff |
-| 3. Обновить генератор, hook и installer | Безопасная инициализация и установка detector | Интеграционные тесты |
-| 4. Проверить оба режима и документацию | Все acceptance criteria проверены | tests/run-tests.ps1, skill validator, ручное ревью F/G |
-| 5. Установить глобально, commit/push | Установленные файлы совпадают, remote обновлён | Хеши файлов, git status/log/push |
+| 1. Сверить обвязку с документацией Claude Code | Найдены устаревшие утверждения и ключи со значением по умолчанию | `code.claude.com/docs`: settings, settings-reference, memory, setup, fullscreen |
+| 2. Разложить правила по `claude/rules/` | `CLAUDE.md` — короткое ядро, темы в отдельных файлах | Ревью diff, `tests/run-tests.ps1` |
+| 3. Починить `settings.json` | Добавлен `effortLevel`, убран ключ со значением по умолчанию | `tests/run-tests.ps1` |
+| 4. Свести правило определения режима к одной копии | Нормативный текст только в reference, остальные ссылаются | `rg PROJECT_ORCHESTRATION_MODE` |
+| 5. Обновить установщик, README и тесты | Правила ставятся, личные правила не теряются, документация не противоречит коду | `tests/run-tests.ps1` — 90 PASS, 0 FAIL |

@@ -82,10 +82,15 @@ Check 'CLAUDE.md установлен' (Test-Path -LiteralPath (Join-Path $cfgFr
 Check 'SKILL.md установлен' (Test-Path -LiteralPath (Join-Path $cfgFresh 'skills\project-specifications\SKILL.md'))
 Check 'шаблоны установлены' (Test-Path -LiteralPath (Join-Path $cfgFresh 'skills\project-specifications\templates\feature.md'))
 Check 'генератор установлен' (Test-Path -LiteralPath (Join-Path $cfgFresh 'bin\new-project.ps1'))
+foreach ($rule in @('orchestration.md', 'specifications.md', 'architecture.md')) {
+    Check "правило rules\$rule установлено" (Test-Path -LiteralPath (Join-Path $cfgFresh "rules\$rule"))
+}
 
 $fresh = Read-Json (Join-Path $cfgFresh 'settings.json')
 Check 'модель перенесена' ($fresh.model -eq 'opus') "получено: $($fresh.model)"
+Check 'усилие рассуждения перенесено' ($fresh.effortLevel -eq 'high') "получено: $($fresh.effortLevel)"
 Check 'режим прав перенесён' ($fresh.permissions.defaultMode -eq 'auto') "получено: $($fresh.permissions.defaultMode)"
+Check 'ключ по умолчанию не тиражируется' (-not ($fresh.PSObject.Properties.Name -contains 'autoUpdatesChannel')) 'autoUpdatesChannel не должен попадать в настройки'
 
 # --- 2. Слияние с существующими настройками ----------------------------------
 Write-Host "-- слияние настроек"
@@ -97,8 +102,14 @@ Set-Text (Join-Path $cfgMerge 'settings.json') @'
   "statusLine": { "type": "command", "command": "echo hi" }
 }
 '@
+Set-Text (Join-Path $cfgMerge 'rules\personal.md') "# Личное правило`n"
+Set-Text (Join-Path $cfgMerge 'rules\architecture.md') "# Устаревшая версия`n"
 & $install -ConfigDir $cfgMerge | Out-Null
 $merged = Read-Json (Join-Path $cfgMerge 'settings.json')
+
+Check 'личные правила не удалены' (Test-Path -LiteralPath (Join-Path $cfgMerge 'rules\personal.md'))
+Check 'правило обвязки обновлено' ([System.IO.File]::ReadAllText((Join-Path $cfgMerge 'rules\architecture.md')) -match 'Доменная архитектура')
+Check 'сделана копия прежнего правила' ((Get-BackupCount (Join-Path $cfgMerge 'rules') 'architecture.md') -eq 1) "копий: $(Get-BackupCount (Join-Path $cfgMerge 'rules') 'architecture.md')"
 
 Check 'чужие ключи сохранены' ($merged.statusLine.command -eq 'echo hi')
 Check 'вложенные чужие ключи сохранены' (@($merged.permissions.allow) -contains 'Bash(ls:*)')

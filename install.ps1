@@ -80,7 +80,23 @@ Backup-IfDifferent $rulesDst $rulesText | Out-Null
 Write-Utf8NoBom $rulesDst $rulesText
 Write-Host "[OK] CLAUDE.md -> $rulesDst"
 
-# 2. Настройки -> <config>/settings.json (слияние, а не перезапись:
+# 2. Правила по темам -> <config>/rules/*.md
+#    Каталог не очищается: рядом могут лежать личные правила, не относящиеся к обвязке.
+#    Устанавливаются только файлы из репозитория, остальные остаются нетронутыми.
+$rulesDirSrc = Join-Path $payload 'rules'
+$rulesDirDst = Join-Path $configDir 'rules'
+if (Test-Path -LiteralPath $rulesDirSrc) {
+    New-Item -ItemType Directory -Force -Path $rulesDirDst | Out-Null
+    foreach ($file in @(Get-ChildItem -LiteralPath $rulesDirSrc -Filter '*.md' -File)) {
+        $ruleText = [System.IO.File]::ReadAllText($file.FullName)
+        $ruleDst = Join-Path $rulesDirDst $file.Name
+        Backup-IfDifferent $ruleDst $ruleText | Out-Null
+        Write-Utf8NoBom $ruleDst $ruleText
+    }
+    Write-Host "[OK] rules/*.md -> $rulesDirDst"
+}
+
+# 3. Настройки -> <config>/settings.json (слияние, а не перезапись:
 #    в файле уже могут быть плагины, хуки и права, добавленные на этой машине).
 $settingsSrc = Join-Path $payload 'settings.json'
 $settingsDst = Join-Path $configDir 'settings.json'
@@ -100,7 +116,7 @@ Backup-IfDifferent $settingsDst $mergedText | Out-Null
 Write-Utf8NoBom $settingsDst $mergedText
 Write-Host "[OK] settings.json -> $settingsDst"
 
-# 3. Скилл -> <config>/skills/project-specifications
+# 4. Скилл -> <config>/skills/project-specifications
 #    Каталог назначения очищается: иначе в нём остаются шаблоны, удалённые из репозитория.
 $skillSrc = Join-Path $payload 'skills\project-specifications'
 $skillDst = Join-Path $configDir 'skills\project-specifications'
@@ -133,7 +149,7 @@ New-Item -ItemType Directory -Force -Path $skillDst | Out-Null
 Copy-Item -Path (Join-Path $skillSrc '*') -Destination $skillDst -Recurse -Force
 Write-Host "[OK] skill project-specifications -> $skillDst"
 
-# 4. Генератор проектов -> <config>/bin/new-project.ps1
+# 5. Генератор проектов -> <config>/bin/new-project.ps1
 $binDir = Join-Path $configDir 'bin'
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 foreach ($name in @('new-project.ps1', 'project-orchestration.ps1')) {

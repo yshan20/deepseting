@@ -16,6 +16,22 @@
 - `git diff --check` — PASS; remote проверен: origin = https://github.com/yshan20/deepseting.git, branch = main.
   Изменения подготовлены к commit/push; результат отправки сообщается отдельно после ответа remote.
 
+### Чистка обвязки (docs/features/harness-cleanup.md)
+
+- Шаг 1: обвязка сверена с `code.claude.com/docs` (settings, settings-reference, memory, setup,
+  fullscreen). Подтверждено: ключи `effortLevel` и `modelSettings` существуют; `autoUpdatesChannel`
+  по умолчанию равен `latest`; `tui` — валидный ключ (research preview); `auto` и `bypassPermissions`
+  в `permissions.defaultMode` действуют только из user/managed настроек.
+- Шаг 2: правила разложены на `claude/rules/orchestration.md`, `specifications.md`,
+  `architecture.md`; `claude/CLAUDE.md` сокращён с 81 до 20 строк.
+- Шаг 3: в `settings.json` добавлен `"effortLevel": "high"`, удалён `autoUpdatesChannel: latest`.
+- Шаг 4: нормативное описание режима собрано в разделе «Определение режима» reference;
+  дубли убраны из `SKILL.md` и `README.md`, в `claude/rules/orchestration.md` остался
+  короткий список для маршрутизации.
+- Шаг 5: установщик ставит `claude/rules/*.md` в `<config>/rules/` без очистки каталога;
+  README и `tests/README.md` обновлены. `tests/run-tests.ps1` в Windows PowerShell 5.1 —
+  90 PASS, 0 FAIL (было 82; добавлено 8 проверок).
+
 ## Заблокировано
 
 - Активных блокеров нет. Первый прогон не находил awk из-за sandbox; запуск вне sandbox прошёл.
@@ -23,7 +39,8 @@
 
 ## Пропущено
 
-- Нет.
+- Глобальная установка этой ветки не выполнялась: параллельный процесс уже переписал
+  `~/.claude` своей версией обвязки. Ставить поверх без разбора конфликта нельзя.
 
 ## Решения без указания
 
@@ -31,3 +48,10 @@
 - Hook читает режим из индекса; generator — из рабочего дерева.
 - Версия оформлена как Unreleased в CHANGELOG: существующей нумерации/тегов нет.
 - Исправлена перезапись существующих specs при повторном запуске согласно обещанию README.
+- `~/.claude/rules/` при установке не очищается, в отличие от каталога навыка: рядом могут лежать
+  личные правила пользователя. Плата за это — правило, удалённое из репозитория, остаётся
+  установленным и требует ручного удаления.
+- Правила установлены без frontmatter `paths:`, то есть грузятся всегда. Разделение даёт
+  модульность, а не экономию контекста; экономия появится, если позже часть правил ограничить путями.
+- Работа велась в отдельном git worktree и ветке `claude/trim-harness`, потому что рабочее дерево
+  `main` параллельно переписывал другой процесс.

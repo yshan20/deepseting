@@ -12,7 +12,8 @@
 
 | Путь | Что это |
 | --- | --- |
-| `claude/CLAUDE.md` | Глобальные правила разработки; ставится в `~/.claude/CLAUDE.md` и подмешивается в каждую сессию. |
+| `claude/CLAUDE.md` | Ядро глобальных правил; ставится в `~/.claude/CLAUDE.md` и подмешивается в каждую сессию. |
+| `claude/rules/*.md` | Правила по темам; ставятся в `~/.claude/rules/` и грузятся наравне с `CLAUDE.md`. |
 | `claude/settings.json` | Настройки Claude Code: модель, усилие рассуждения, тема, режим прав. |
 | `claude/skills/project-specifications/` | Скилл ведения спецификаций проекта и шаблоны документов. |
 | `bin/new-project.ps1` | Генератор каркаса спецификаций и pre-commit хука в новом проекте. |
@@ -39,6 +40,8 @@ pwsh -File install.ps1
 Что делает скрипт:
 
 - кладёт `claude/CLAUDE.md` в `~/.claude/CLAUDE.md`;
+- кладёт `claude/rules/*.md` в `~/.claude/rules/`; каталог **не** очищается — личные правила,
+  лежащие рядом, остаются на месте, заменяются только одноимённые файлы обвязки;
 - **сливает** `claude/settings.json` с существующим `~/.claude/settings.json`, а не перезаписывает его:
   ключи из репозитория побеждают, всё остальное (плагины, хуки, выданные права) остаётся на месте;
 - ставит скилл в `~/.claude/skills/project-specifications` (каталог предварительно очищается, иначе
@@ -62,19 +65,27 @@ pwsh -File install.ps1
 ```json
 {
   "model": "opus",
+  "effortLevel": "high",
   "theme": "dark",
   "permissions": { "defaultMode": "auto" },
   "enableWorkflows": true,
-  "autoUpdatesChannel": "latest",
   "tui": "fullscreen"
 }
 ```
 
-- `model` — алиас модели; в `settings.json` это строка, объектная форма с усилием тут не принимается.
-  Усилие рассуждения задаётся на сессию: `/effort high` в сессии или `claude --effort high` при запуске
-  (уровни `low` / `medium` / `high` / `xhigh` / `max`, значение запоминается локально).
+- `model` — алиас модели; в `settings.json` это строка. Усилие рассуждения задаётся отдельным ключом.
+- `effortLevel` — уровень усилия по умолчанию для моделей без собственного сохранённого значения
+  (`low` / `medium` / `high` / `xhigh` / `max`). Внутри сессии переключается командой `/effort`,
+  при запуске — флагом `claude --effort high`. Чтобы задать или ограничить усилие для конкретной
+  модели, есть отдельный ключ `modelSettings`.
 - `permissions.defaultMode: auto` — режим, в котором агент работает без подтверждения каждого шага.
-  Полный обход проверок — это `bypassPermissions`; меняй осознанно.
+  Значения `auto` и `bypassPermissions` действуют только из user- или managed-настроек, то есть
+  ровно оттуда, куда пишет `install.ps1`; из проектных настроек они игнорируются. Полный обход
+  проверок — это `bypassPermissions`; меняй осознанно.
+- `tui: fullscreen` — альтернативный рендерер терминала (research preview), он же `/tui fullscreen`.
+- `autoUpdatesChannel` здесь нет намеренно: `latest` — и так значение по умолчанию, поэтому строка
+  ничего не меняла. Осмысленное значение здесь только `"stable"` — версия примерно недельной
+  давности без релизов с крупными регрессиями.
 - Списка включённых плагинов (`enabledPlugins`) здесь нет намеренно: плагины зависят от установленных
   на машине маркетплейсов, и перенос их «вслепую» ломает запуск.
 
@@ -119,18 +130,14 @@ pwsh -File ~/.claude/bin/new-project.ps1 <путь-к-проекту> -Feature <
 
 ## Game Master Plan и внешняя оркестрация
 
-В начале сессии режим определяется по корню репозитория:
+В начале сессии режим определяется по корню репозитория: явное объявление
+`PROJECT_ORCHESTRATION_MODE` в корневом `CLAUDE.md`, иначе sentinel `specs/master/ACTIVE_STAGE.md`,
+иначе `STANDARD_DEEPSETING`.
 
-1. Отдельная строка `PROJECT_ORCHESTRATION_MODE: GAME_MASTER_PLAN` в корневом `CLAUDE.md`
-   выбирает `GAME_MASTER_PLAN`. Явная `PROJECT_ORCHESTRATION_MODE: STANDARD_DEEPSETING`
-   выбирает стандартный режим и имеет приоритет над sentinel.
-2. Если объявления нет, файл `specs/master/ACTIVE_STAGE.md` включает `GAME_MASTER_PLAN`.
-3. Без обоих сигналов — `STANDARD_DEEPSETING`, существующий процесс и утверждение критериев сохраняются.
-
-Регистр значим; пробелы/табуляция вокруг строки и значения допустимы. Неизвестное значение
-или несколько объявлений блокируют инициализацию/hook с ошибкой конфигурации.
-Отдельная строка объявления внутри примера тоже считается сигналом: в `CLAUDE.md` оформляйте
-неактивные примеры inline. Детектор не требует сети и не зависит от имени проекта или машины.
+Нормативное описание правила — одно, в разделе
+[«Определение режима»](claude/skills/project-specifications/references/game-master-plan.md#определение-режима):
+там регистр, приоритеты, ошибки конфигурации и то, почему генератор читает рабочее дерево,
+а hook — индекс. Глобальные правила, `SKILL.md` и этот README ссылаются туда и правило не повторяют.
 
 ```text
 game/
@@ -153,12 +160,9 @@ deepseting сохраняет инженерную дисциплину, тес�
 `docs/plan.md`, корневой `PROGRESS.md` не создаются и не поддерживаются, если сам Master Plan их не требует.
 
 «continue», «дальше», «продолжай» восстанавливают ACTIVE_STAGE → Stage → Wave → HANDOFF →
-Lab PROGRESS/TODO → первую незавершённую разрешённую задачу. Существующая Lab task с критериями,
-разрешённая Stage и включённая в активную Wave, без блокирующих решений не требует повторного approval.
-Детали реализации и локальный Lab design выполняются самостоятельно внутри утверждённых границ;
-совместимые cross-Lab расширения требуют соблюдения условий specs, Wave, registry и тестов потребителей.
-Продуктовые решения, новый объём и ломающая/семантическая архитектура требуют предложения и явного approval.
-Подробности — в [правилах режима](claude/skills/project-specifications/references/game-master-plan.md).
+Lab PROGRESS/TODO → первую незавершённую разрешённую задачу. Границы автономности — какая работа
+считается уже утверждённой, а какая требует явного approval, — описаны в
+[правилах режима](claude/skills/project-specifications/references/game-master-plan.md).
 
 Генератор проверяет рабочее дерево до любых записей. При ручном вызове для Game Master Plan
 он предупреждает и пропускает весь стандартный каркас, включая README и hook; имеющиеся файлы,
@@ -166,16 +170,13 @@ Lab PROGRESS/TODO → первую незавершённую разрешённ
 Для каталога без Git передавайте сам корень проекта. Даже если Master Plan разрешил отдельные
 стандартные документы, создавайте только требуемые документы вручную по его правилам.
 
-Новые hooks определяют режим по **индексу**, чтобы незастейдженный marker/sentinel не обходил
-стандартные проверки. В `GAME_MASTER_PLAN` несовместимые проверки пропускаются; hook не выдаёт
-это за валидацию Master/Lab state. Стандартная валидация остаётся прежней.
-Глобальная установка не меняет hooks существующих проектов. Старые установленные hooks нужно
-обновить отдельно с сохранением локальных проверок; генератор существующий hook не переписывает.
+В `GAME_MASTER_PLAN` hook пропускает несовместимые проверки и не выдаёт это за валидацию
+Master/Lab state; стандартная валидация остаётся прежней. Глобальная установка не меняет hooks
+существующих проектов: старые установленные hooks нужно обновить отдельно, сохранив локальные
+проверки, — генератор существующий hook не переписывает.
 
-Контекст модели считается рабочей памятью. Протоколы session start/checkpoint и файлы
-CURRENT_STATE, DECISION_LOG, INTERFACE_REGISTRY, HANDOFF и Lab progress остаются источником состояния;
-вторая система памяти не создаётся. Загружаются активные Stage/Wave/Lab и релевантные код/тесты,
-а не все будущие спецификации.
+Состояние проекта живёт в файлах Master Plan (CURRENT_STATE, DECISION_LOG, INTERFACE_REGISTRY,
+HANDOFF, Lab progress), а не в контексте модели; вторая система памяти не создаётся.
 
 ## Тесты
 
@@ -190,12 +191,12 @@ pre-commit хука на настоящем git-репозитории. Подр
 
 | Было (DeepSeek Harness) | Стало (Claude Code) |
 | --- | --- |
-| `~/.dsh/AGENTS.md` | `~/.claude/CLAUDE.md` (`claude/CLAUDE.md` в репозитории) |
+| `~/.dsh/AGENTS.md` | `~/.claude/CLAUDE.md` + `~/.claude/rules/*.md` (`claude/` в репозитории) |
 | `~/.dsh/settings.yaml` | `~/.claude/settings.json` (`claude/settings.json`) |
 | `~/.dsh/skills/project-specifications` | `~/.claude/skills/project-specifications` |
 | `~/.dsh/bin/new-project.ps1` | `~/.claude/bin/new-project.ps1` |
 | `agent-default-model: deepseek-v4-pro` | `"model": "opus"` |
-| `reasoningEffort: high` | Ключа в `settings.json` нет: `/effort high` в сессии или `claude --effort high`. |
+| `reasoningEffort: high` | `"effortLevel": "high"` (в сессии — `/effort`, при запуске — `claude --effort high`) |
 | `permission.defaultPreset: danger-full-access` | `"permissions": { "defaultMode": "auto" }` |
 | `ui-theme.preference: dark` | `"theme": "dark"` |
 | `agent-presets.default: cordis` | Прямого аналога нет — пресет отброшен. |
