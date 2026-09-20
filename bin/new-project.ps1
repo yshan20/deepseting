@@ -1,8 +1,5 @@
-﻿# new-project.ps1 — генерирует каркас спецификаций в проекте.
-#
-# Использование:
-#   pwsh -File new-project.ps1 [путь]
-#   pwsh -File new-project.ps1 [путь] -Feature <имя-функции>
+﻿# Explicitly initializes minimal optional project documentation.
+# Usage: pwsh -File new-project.ps1 [path] [-Feature <name>]
 
 [CmdletBinding()]
 param(
@@ -11,248 +8,73 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-
 $target = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
 
-# Resolve nested invocations to the Git root before reading project policy.
+# A nested invocation targets the Git root. Directories without Git are used as-is.
+$oldPreference = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 $gitOutput = & git -C $target rev-parse --show-toplevel 2>&1
 $gitCode = $LASTEXITCODE
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = $oldPreference
 if ($gitCode -eq 0) {
     $target = ($gitOutput | Out-String).Trim()
 } elseif (($gitOutput | Out-String) -notmatch 'not a git repository') {
     throw "Cannot determine repository root: $gitOutput"
 }
+
 . (Join-Path $PSScriptRoot 'project-orchestration.ps1')
 $mode = Get-ProjectOrchestrationMode $target
-Write-Host "[i]  PROJECT_ORCHESTRATION_MODE: $mode"
+Write-Host "[i] PROJECT_ORCHESTRATION_MODE: $mode"
 if ($mode -eq 'GAME_MASTER_PLAN') {
-    Write-Warning 'Game Master Plan detected. Skipping docs/SPEC.md, docs/features/, docs/plan.md, root PROGRESS.md and the standard specification hook. Existing project state and tooling are preserved.'
+    Write-Warning 'Game Master Plan detected. No parallel documentation was created.'
     return
 }
 
-# Каталог шаблонов: каталог настроек Codex (после install.ps1) или сам репозиторий.
-$configDir = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' }
-$tpl = $null
-foreach ($candidate in @(
-        (Join-Path $PSScriptRoot '..\codex\skills\project-specifications\templates'),
-        (Join-Path $PSScriptRoot '..\skills\project-specifications\templates'),
-        (Join-Path $configDir 'skills\project-specifications\templates')
-    )) {
-    if (Test-Path -LiteralPath (Join-Path $candidate 'SPEC.md')) { $tpl = $candidate; break }
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+$safe = $null
+if ($Feature) {
+    $safe = $Feature.Trim().ToLowerInvariant()
+    $safe = [regex]::Replace($safe, '[^\p{L}\p{Nd}._-]+', '-')
+    $safe = $safe.Trim('.', '-', '_')
+    if ([string]::IsNullOrWhiteSpace($safe)) {
+        throw 'Feature name must contain at least one letter or digit.'
+    }
 }
 
-# Папки
-New-Item -ItemType Directory -Force -Path (Join-Path $target 'docs\features') | Out-Null
-
-function Copy-Tpl([string]$name, [string]$dest) {
-    $dst = Join-Path $target $dest
-    if (Test-Path -LiteralPath $dst) {
-        Write-Host "[i]  $dest already exists - skipped"
-        return
+function Write-NewFile([string]$Destination, [string]$Content) {
+    if (Test-Path -LiteralPath $Destination) {
+        Write-Host "[i] $Destination already exists - skipped"
+        return $false
     }
-    if ($tpl) {
-        Copy-Item -LiteralPath (Join-Path $tpl $name) -Destination $dst -Force
-    } else {
-        Write-Warning "Шаблон не найден ($name) — создаю пустой файл."
-        New-Item -ItemType File -Force -Path $dst | Out-Null
-    }
-    Write-Host "[OK] $dest"
+    $parent = Split-Path -Parent $Destination
+    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    [System.IO.File]::WriteAllText($Destination, ($Content -replace "`r`n", "`n"), $utf8)
+    Write-Host "[OK] $Destination"
+    return $true
 }
 
-# README.md — краткое описание структуры (только если ещё нет)
-$readme = Join-Path $target 'README.md'
-if (Test-Path -LiteralPath $readme) {
-    Write-Host "[i]  README.md уже существует — пропущен"
-} else {
-    $leaf = Split-Path $target -Leaf
-    # Здесь-строка одинарная: в интерполирующей PowerShell съедает обратные кавычки
-    # markdown как escape-символ. Имя проекта подставляется после.
-    $content = @'
+$projectName = Split-Path $target -Leaf
+$readmeText = @'
 # __PROJECT__
 
-Краткое описание структуры проекта.
+<!-- Кратко: назначение проекта, запуск и проверки. -->
+'@.Replace('__PROJECT__', $projectName)
+Write-NewFile (Join-Path $target 'README.md') $readmeText | Out-Null
 
-## Структура
-
-- `docs/SPEC.md` — центральная спецификация (система, границы, ключевые решения).
-- `docs/features/` — спецификации отдельных функций.
-- `docs/plan.md` — план реализации текущей функции.
-- `PROGRESS.md` — прогресс (сделано / заблокировано / пропущено / решения без указания).
-
-## Спецификации и проверки
-
-- Критерии готовности в `docs/features/*.md` — таблица с обязательной колонкой «Чем проверяется».
-- Если результат и границы уже заданы запросом или спецификацией, повторное утверждение критериев не требуется. Существенный неразрешённый выбор и расширение объёма согласуются отдельно.
-- Git pre-commit хук в `.githooks/pre-commit` (подключён через `core.hooksPath`) проверяет содержимое индекса — то, что уйдёт в коммит, а не файлы в рабочем дереве.
-
-Хук отклоняет коммит, если в критериях готовности есть строка с пустой колонкой «Чем проверяется» или без этой колонки вообще, если в разделе «Критерии готовности» нет таблицы с такой колонкой, или если изменён `docs/plan.md` без изменения `PROGRESS.md`. Архив `docs/features/done/` не проверяется. В тексте ошибки — имя файла и номер строки.
-
-## Запуск / сборка / тесты
-
-<!-- как запускать, собирать и тестировать проект -->
-'@
-    $content = $content.Replace('__PROJECT__', $leaf)
-    $utf8 = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($readme, $content, $utf8)
-    Write-Host "[OK] README.md"
-}
-
-Copy-Tpl 'SPEC.md' 'docs\SPEC.md'
-Copy-Tpl 'plan.md' 'docs\plan.md'
-Copy-Tpl 'progress.md' 'PROGRESS.md'
-
-# Опционально: заготовка функции
 if ($Feature) {
-    $safe = ($Feature.Trim() -replace '[\\/:*?"<>|]', '-')
-    Copy-Tpl 'feature.md' "docs\features\$safe.md"
+    $configDir = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' }
+    $template = $null
+    foreach ($candidate in @(
+            (Join-Path $PSScriptRoot '..\codex\skills\project-specifications\templates\feature-brief.md'),
+            (Join-Path $PSScriptRoot '..\skills\project-specifications\templates\feature-brief.md'),
+            (Join-Path $configDir 'skills\project-specifications\templates\feature-brief.md')
+        )) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { $template = $candidate; break }
+    }
+    if (-not $template) { throw 'Feature brief template was not found.' }
+
+    $brief = [System.IO.File]::ReadAllText($template).Replace('__FEATURE__', $Feature.Trim())
+    Write-NewFile (Join-Path $target "docs\specs\$safe.md") $brief | Out-Null
 }
 
-# Git pre-commit hook
-$hooksDir = Join-Path $target '.githooks'
-New-Item -ItemType Directory -Force -Path $hooksDir | Out-Null
-$hookPath = Join-Path $hooksDir 'pre-commit'
-if (Test-Path -LiteralPath $hookPath) {
-    Write-Host "[i]  .githooks/pre-commit уже существует — пропущен"
-} else {
-    $hook = @'
-#!/bin/sh
-# pre-commit: проверяет спецификации проекта перед коммитом.
-cd "$(git rev-parse --show-toplevel)" 2>/dev/null || exit 1
-
-# Route using the index, just like the specification checks below. Unstaged
-# markers must not bypass validation of a STANDARD_DEEPSETING commit.
-mode=$(git show ':CLAUDE.md' 2>/dev/null | awk '
-  { sub(/^\357\273\277/, "") }
-  /^[\t ]*PROJECT_ORCHESTRATION_MODE:/ {
-    count++; sub(/^[\t ]*PROJECT_ORCHESTRATION_MODE:[\t ]*/, "")
-    sub(/[\t \r]+$/, ""); mode = $0
-  }
-  END {
-    if (count > 1 || (count == 1 && mode != "GAME_MASTER_PLAN" && mode != "STANDARD_DEEPSETING")) exit 1
-    print mode
-  }
-') || { echo 'Invalid PROJECT_ORCHESTRATION_MODE in staged CLAUDE.md'; exit 1; }
-if [ -z "$mode" ]; then
-  if git cat-file -e ':specs/master/ACTIVE_STAGE.md' 2>/dev/null; then
-    mode=GAME_MASTER_PLAN
-  else
-    mode=STANDARD_DEEPSETING
-  fi
-fi
-if [ "$mode" = GAME_MASTER_PLAN ]; then
-  echo 'Game Master Plan: skipping standard specification validation.'
-  exit 0
-fi
-
-fail=0
-
-# Проверяется содержимое индекса (то, что реально уйдёт в коммит), а не рабочее дерево.
-# :(glob) — чтобы * не заходил в подкаталоги: архив docs/features/done/ не проверяем.
-features=$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR -- ':(glob)docs/features/*.md')
-
-old_ifs=$IFS
-IFS='
-'
-set -f
-for f in $features; do
-  [ -n "$f" ] || continue
-  git show ":$f" | awk -F'|' -v fname="$f" '
-    function trim(s) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
-
-    # Колонка ищется по заголовку таблицы, а не по фиксированному номеру:
-    # проверка не зависит от числа колонок и их порядка в конкретном файле.
-    BEGIN { bad = 0; col = 0; found = 0; seen = 0; seen_line = 0 }
-
-    /^[[:space:]]*##[[:space:]]*Критерии готовности/ {
-      seen = 1; seen_line = NR; col = 0; next
-    }
-
-    /^[[:space:]]*\|/ {
-      # Ячейки лежат в полях 2..n+1; завершающий разделитель даёт пустое поле.
-      n = NF - 1
-      if (trim($NF) == "") n = NF - 2
-
-      hdr = 0
-      for (i = 1; i <= n; i++)
-        if (trim($(i + 1)) == "Чем проверяется") { col = i; found = 1; hdr = 1 }
-      if (hdr) next
-
-      if ($0 ~ /^[[:space:]]*\|[[:space:]:|-]*$/) next
-      if (col == 0) next
-
-      if (n < col) {
-        printf "%s:%d: ошибка: в строке критерия нет колонки «Чем проверяется»\n", fname, NR
-        bad = 1
-        next
-      }
-      if (trim($(col + 1)) == "") {
-        printf "%s:%d: ошибка: пустая колонка «Чем проверяется» в критерии готовности\n", fname, NR
-        bad = 1
-      }
-      next
-    }
-
-    { col = 0 }
-
-    END {
-      if (seen && !found) {
-        printf "%s:%d: ошибка: в разделе «Критерии готовности» нет таблицы с колонкой «Чем проверяется»\n", fname, seen_line
-        bad = 1
-      }
-      exit bad
-    }
-  ' || fail=1
-done
-set +f
-IFS=$old_ifs
-
-staged=$(git diff --cached --name-only --)
-if printf '%s\n' "$staged" | grep -qx 'docs/plan.md'; then
-  if ! printf '%s\n' "$staged" | grep -qx 'PROGRESS.md'; then
-    echo "ошибка: изменён docs/plan.md, но PROGRESS.md не изменён — обнови прогресс перед коммитом"
-    fail=1
-  fi
-fi
-
-if [ "$fail" -ne 0 ]; then
-  echo "коммит отклонён: исправь замечания выше"
-  exit 1
-fi
-
-exit 0
-'@
-    # LF-переводы строк: с CRLF шебанг ломается на Linux/macOS.
-    $hook = $hook -replace "`r`n", "`n"
-    $utf8 = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($hookPath, $hook, $utf8)
-    Write-Host "[OK] .githooks/pre-commit"
-}
-
-# Признак исполняемости: без него git молча пропускает хук на Linux/macOS.
-if ($PSVersionTable.Platform -and $PSVersionTable.Platform -ne 'Win32NT') {
-    & chmod +x -- $hookPath
-}
-
-# Подключить хук, если это git-репозиторий
-if ($gitCode -eq 0) {
-    $hooksAbs = (Join-Path $target '.githooks').Replace('\', '/')
-    git -C "$target" config core.hooksPath "$hooksAbs"
-    Write-Host "[OK] core.hooksPath = $hooksAbs"
-
-    # Режим 100755 в индексе — иначе после клона на Linux/macOS хук не запустится.
-    $ErrorActionPreference = 'Continue'
-    git -C "$target" add --chmod=+x -- '.githooks/pre-commit'
-    $ErrorActionPreference = 'Stop'
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "[OK] .githooks/pre-commit добавлен в индекс с признаком исполняемости"
-    } else {
-        Write-Host "[i]  не удалось выставить признак исполняемости: выполни 'git add --chmod=+x .githooks/pre-commit'"
-    }
-} else {
-    Write-Host "[i]  не git-репозиторий: после git init выполни 'git config core.hooksPath .githooks'"
-}
-
-Write-Host ""
-Write-Host "Готово. Каркас спецификаций создан в $target"
+Write-Host "Ready: minimal documentation initialized in $target"

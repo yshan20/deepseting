@@ -1,27 +1,21 @@
-﻿# run-tests.ps1 — проверяет установщик, генератор проектов и pre-commit хук.
-#
-# Запуск:
-#   pwsh -File tests/run-tests.ps1
-#   pwsh -File tests/run-tests.ps1 -Keep   # не удалять tests/.tmp после прогона
-#
-# Совместим с Windows PowerShell 5.1 и PowerShell 7+. Нужны git и sh (Git for Windows подходит).
-
+﻿# Integration tests for the Codex installer, initializer and skill patcher.
 [CmdletBinding()]
-param(
-    [switch]$Keep
-)
+param([switch]$Keep)
 
 $ErrorActionPreference = 'Stop'
-
 $repo = Split-Path -Parent $PSScriptRoot
 $install = Join-Path $repo 'install.ps1'
 $generator = Join-Path $repo 'bin\new-project.ps1'
+$patcher = Join-Path $repo 'bin\update-skill-guidance.ps1'
 $tmpRoot = Join-Path $PSScriptRoot '.tmp'
-$expectedTmp = [IO.Path]::GetFullPath((Join-Path $repo 'tests\.tmp'))
-if ([IO.Path]::GetFullPath($tmpRoot) -ne $expectedTmp) { throw 'Test cleanup path escaped tests/.tmp' }
-if ((Test-Path -LiteralPath $tmpRoot) -and (Get-Item -LiteralPath $tmpRoot -Force).Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'Refusing test cleanup through a link' }
+$expectedTmp = [IO.Path]::GetFullPath((Join-Path $repo 'tests/.tmp'))
 
-if (Test-Path -LiteralPath $tmpRoot) { Remove-Item -LiteralPath $tmpRoot -Recurse -Force }
+if ([IO.Path]::GetFullPath($tmpRoot) -ne $expectedTmp) { throw 'Unexpected cleanup path.' }
+if (Test-Path -LiteralPath $tmpRoot) {
+    $item = Get-Item -LiteralPath $tmpRoot -Force
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Refusing to clean a linked test directory.' }
+    Remove-Item -LiteralPath $tmpRoot -Recurse -Force
+}
 New-Item -ItemType Directory -Force -Path $tmpRoot | Out-Null
 
 $script:passed = 0
@@ -39,227 +33,196 @@ function Check([string]$Name, [bool]$Ok, [string]$Detail = '') {
 }
 
 function Set-Text([string]$Path, [string]$Text) {
-    $dir = Split-Path -Parent $Path
-    if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    $parent = Split-Path -Parent $Path
+    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
     $utf8 = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($Path, ($Text -replace "`r`n", "`n"), $utf8)
+    [IO.File]::WriteAllText($Path, ($Text -replace "`r`n", "`n"), $utf8)
 }
 
-# Native-команды не должны срывать выполнение через $ErrorActionPreference = 'Stop'.
-function Invoke-Git([string]$Dir, [string[]]$GitArgs) {
+function Read-Text([string]$Path) { return [IO.File]::ReadAllText($Path) }
+function Backup-Count([string]$Dir, [string]$Pattern) {
+    return @(Get-ChildItem -LiteralPath $Dir -Filter $Pattern -ErrorAction SilentlyContinue).Count
+}
+function Invoke-Git([string]$Dir, [string[]]$Arguments) {
     $old = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    $out = & git -C $Dir @GitArgs 2>&1 | Out-String
+    $output = & git -C $Dir @Arguments 2>&1 | Out-String
     $code = $LASTEXITCODE
     $ErrorActionPreference = $old
-    return [pscustomobject]@{ Code = $code; Out = $out }
+    return [pscustomobject]@{ Code = $code; Output = $output }
+}
+function New-GitFixture([string]$Name) {
+    $path = Join-Path $tmpRoot $Name
+    New-Item -ItemType Directory -Force -Path $path | Out-Null
+    $result = Invoke-Git $path @('init', '-q')
+    if ($result.Code -ne 0) { throw "git init failed: $($result.Output)" }
+    return $path
+}
+function Snapshot([string]$Path) {
+    $entries = @()
+    foreach ($file in @(Get-ChildItem -LiteralPath $Path -Recurse -File -Force | Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' })) {
+        $relative = $file.FullName.Substring($Path.Length).TrimStart('\', '/')
+        $entries += "$relative=$((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash)"
+    }
+    return @($entries | Sort-Object)
 }
 
-function Read-Json([string]$Path) {
-    return [System.IO.File]::ReadAllText($Path) | ConvertFrom-Json
-}
+Write-Host '== deepseting Codex tests =='
 
-function Get-BackupCount([string]$Dir, [string]$Name) {
-    return @(Get-ChildItem -LiteralPath $Dir -Filter "$Name.bak-*" -ErrorAction SilentlyContinue).Count
-}
-
-Write-Host "== Тесты обвязки Codex =="
-Write-Host "Репозиторий : $repo"
-Write-Host "Временно в  : $tmpRoot"
-Write-Host ""
-
-# --- 1. Установка в пустой каталог -------------------------------------------
-Write-Host "-- установка с нуля"
+Write-Host '-- fresh install'
 $cfgFresh = Join-Path $tmpRoot 'config-fresh'
 & $install -ConfigDir $cfgFresh | Out-Null
+foreach ($relative in @('AGENTS.md', 'config.toml', 'skills/project-specifications/SKILL.md', 'skills/project-specifications/templates/feature-brief.md', 'skills/project-specifications/references/game-master-plan.md', 'bin/new-project.ps1', 'bin/project-orchestration.ps1')) {
+    Check "installed $relative" (Test-Path -LiteralPath (Join-Path $cfgFresh $relative) -PathType Leaf)
+}
+$templates = @(Get-ChildItem -LiteralPath (Join-Path $cfgFresh 'skills/project-specifications/templates') -File)
+Check 'only one lean template is installed' ($templates.Count -eq 1 -and $templates[0].Name -eq 'feature-brief.md') ($templates.Name -join ', ')
+$freshConfig = Read-Text (Join-Path $cfgFresh 'config.toml')
+Check 'model installed' ($freshConfig -match '(?m)^model = "gpt-5\.6-sol"$')
+Check 'sandbox mode installed' ($freshConfig -match '(?m)^sandbox_mode = "workspace-write"$')
+Check 'managed config block is unique' (([regex]::Matches($freshConfig, 'deepseting managed defaults >>>')).Count -eq 1)
+& $install -ConfigDir $cfgFresh -ApplySkillPatches | Out-Null
+Check 'ApplySkillPatches remains callable' (Test-Path -LiteralPath (Join-Path $cfgFresh 'skills/project-specifications/SKILL.md'))
 
-Check 'AGENTS.md установлен' (Test-Path -LiteralPath (Join-Path $cfgFresh 'AGENTS.md'))
-Check 'SKILL.md установлен' (Test-Path -LiteralPath (Join-Path $cfgFresh 'skills\project-specifications\SKILL.md'))
-Check 'шаблоны установлены' (Test-Path -LiteralPath (Join-Path $cfgFresh 'skills\project-specifications\templates\feature.md'))
-Check 'генератор установлен' (Test-Path -LiteralPath (Join-Path $cfgFresh 'bin\new-project.ps1'))
-
-$fresh = [System.IO.File]::ReadAllText((Join-Path $cfgFresh 'config.toml'))
-Check 'модель перенесена' ($fresh -match '(?m)^model = "gpt-5\.6-sol"$')
-Check 'режим песочницы перенесён' ($fresh -match '(?m)^sandbox_mode = "workspace-write"$')
-
-# --- 2. Слияние с существующими настройками ----------------------------------
-Write-Host "-- слияние настроек"
+Write-Host '-- marked config merge and idempotence'
 $cfgMerge = Join-Path $tmpRoot 'config-merge'
 New-Item -ItemType Directory -Force -Path $cfgMerge | Out-Null
 Set-Text (Join-Path $cfgMerge 'config.toml') @'
 [mcp_servers.example]
 command = "example-server"
+
+[projects.'D:\work']
+trust_level = "trusted"
 '@
 & $install -ConfigDir $cfgMerge | Out-Null
-$merged = [System.IO.File]::ReadAllText((Join-Path $cfgMerge 'config.toml'))
-
-Check 'локальная секция сохранена' ($merged -match '\[mcp_servers\.example\]')
-Check 'локальное значение сохранено' ($merged -match 'command = "example-server"')
-Check 'ключи репозитория добавлены' ($merged -match '(?m)^model = "gpt-5\.6-sol"$')
-Check 'управляемый блок единственный' (([regex]::Matches($merged, 'deepseting managed defaults >>>')).Count -eq 1)
-Check 'сделана резервная копия' ((Get-BackupCount $cfgMerge 'config.toml') -eq 1) "копий: $(Get-BackupCount $cfgMerge 'config.toml')"
-
-# --- 3. Повторный запуск идемпотентен ----------------------------------------
-Write-Host "-- повторная установка"
+$merged = Read-Text (Join-Path $cfgMerge 'config.toml')
+Check 'local MCP section survives merge' ($merged -match '\[mcp_servers\.example\]')
+Check 'trusted project survives merge' ($merged -match "\[projects\.'D:\\work'\]")
+Check 'managed values are added' ($merged -match '(?m)^model = "gpt-5\.6-sol"$')
+Check 'changed config receives one backup' ((Backup-Count $cfgMerge 'config.toml.bak-*') -eq 1)
+$mergedHash = (Get-FileHash -LiteralPath (Join-Path $cfgMerge 'config.toml') -Algorithm SHA256).Hash
 & $install -ConfigDir $cfgMerge | Out-Null
-$again = [System.IO.File]::ReadAllText((Join-Path $cfgMerge 'config.toml'))
-Check 'повторная установка не портит настройки' ($again -match 'command = "example-server"' -and ([regex]::Matches($again, 'deepseting managed defaults >>>')).Count -eq 1)
-Check 'лишних резервных копий нет' ((Get-BackupCount $cfgMerge 'config.toml') -eq 1) "копий: $(Get-BackupCount $cfgMerge 'config.toml')"
+Check 'repeat install keeps merged config stable' ((Get-FileHash -LiteralPath (Join-Path $cfgMerge 'config.toml') -Algorithm SHA256).Hash -eq $mergedHash)
+Check 'repeat install creates no config backup' ((Backup-Count $cfgMerge 'config.toml.bak-*') -eq 1)
 
+Write-Host '-- skill tree replacement and external backup'
 $installedSkill = Join-Path $cfgMerge 'skills/project-specifications'
 Set-Text (Join-Path $installedSkill 'local-notes.md') 'user notes'
+Set-Text (Join-Path $installedSkill 'templates/obsolete.md') 'old template'
 Set-Text (Join-Path $installedSkill 'SKILL.md') 'user previous instructions'
 & $install -ConfigDir $cfgMerge | Out-Null
-Check 'локальные файлы навыка сохраняются' ([IO.File]::ReadAllText((Join-Path $installedSkill 'local-notes.md')) -eq 'user notes')
-Check 'изменённый skill сохранён в backup' ((Get-BackupCount $installedSkill 'SKILL.md') -eq 1)
+$skillBackupRoot = Join-Path $cfgMerge 'backups/skills'
+$skillBackups = @(Get-ChildItem -LiteralPath $skillBackupRoot -Directory -Filter 'project-specifications-*')
+Check 'changed skill tree gets one external backup' ($skillBackups.Count -eq 1)
+Check 'skill backup is outside discovery tree' ($skillBackups[0].FullName -notlike "$installedSkill*")
+Check 'skill backup preserves local files' ((Read-Text (Join-Path $skillBackups[0].FullName 'local-notes.md')) -eq 'user notes')
+Check 'stale skill files are removed from installation' (-not (Test-Path -LiteralPath (Join-Path $installedSkill 'local-notes.md')) -and -not (Test-Path -LiteralPath (Join-Path $installedSkill 'templates/obsolete.md')))
+Check 'installed skill matches payload' ((Get-FileHash -LiteralPath (Join-Path $installedSkill 'SKILL.md')).Hash -eq (Get-FileHash -LiteralPath (Join-Path $repo 'codex/skills/project-specifications/SKILL.md')).Hash)
 & $install -ConfigDir $cfgMerge | Out-Null
-Check 'повторная установка skill не плодит backup' ((Get-BackupCount $installedSkill 'SKILL.md') -eq 1)
+Check 'repeat skill install creates no extra backup' (@(Get-ChildItem -LiteralPath $skillBackupRoot -Directory -Filter 'project-specifications-*').Count -eq 1)
 
-# --- 4. Каркас нового проекта -------------------------------------------------
-Write-Host "-- каркас проекта"
-$proj = Join-Path $tmpRoot 'project'
-New-Item -ItemType Directory -Force -Path $proj | Out-Null
-Invoke-Git $proj @('init', '-q') | Out-Null
-Invoke-Git $proj @('config', 'user.email', 'tests@example.com') | Out-Null
-Invoke-Git $proj @('config', 'user.name', 'harness tests') | Out-Null
-Invoke-Git $proj @('config', 'commit.gpgsign', 'false') | Out-Null
-
-& $generator -Path $proj -Feature demo | Out-Null
-
-foreach ($rel in @('README.md', 'docs\SPEC.md', 'docs\plan.md', 'PROGRESS.md', 'docs\features\demo.md', '.githooks\pre-commit')) {
-    Check "создан $rel" (Test-Path -LiteralPath (Join-Path $proj $rel))
+Write-Host '-- minimal initializer'
+$project = New-GitFixture 'project'
+Invoke-Git $project @('config', 'core.hooksPath', 'custom-hooks') | Out-Null
+$nested = Join-Path $project 'src/nested'
+New-Item -ItemType Directory -Force -Path $nested | Out-Null
+& $generator -Path $nested -Feature '../Danger Name?' | Out-Null
+Check 'nested invocation creates root README' (Test-Path -LiteralPath (Join-Path $project 'README.md') -PathType Leaf)
+Check 'feature name is normalized safely' (Test-Path -LiteralPath (Join-Path $project 'docs/specs/danger-name.md') -PathType Leaf)
+Check 'feature brief contains original title' ((Read-Text (Join-Path $project 'docs/specs/danger-name.md')) -match '# \.\./Danger Name\?')
+foreach ($relative in @('docs/SPEC.md', 'docs/plan.md', 'PROGRESS.md', 'docs/features', '.githooks')) {
+    Check "initializer omits $relative" (-not (Test-Path -LiteralPath (Join-Path $project $relative)))
 }
-$hooksPath = (Invoke-Git $proj @('config', 'core.hooksPath')).Out.Trim()
-Check 'хук подключён через core.hooksPath' ($hooksPath -like '*.githooks') "получено: $hooksPath"
+Check 'initializer preserves core.hooksPath' ((Invoke-Git $project @('config', 'core.hooksPath')).Output.Trim() -eq 'custom-hooks')
+Set-Text (Join-Path $project 'README.md') 'custom readme'
+Set-Text (Join-Path $project 'docs/specs/danger-name.md') 'approved brief'
+& $generator -Path $project -Feature '../Danger Name?' | Out-Null
+Check 'existing README is not overwritten' ((Read-Text (Join-Path $project 'README.md')) -eq 'custom readme')
+Check 'existing brief is not overwritten' ((Read-Text (Join-Path $project 'docs/specs/danger-name.md')) -eq 'approved brief')
 
-# --- 5. Хук отклоняет пустую колонку «Чем проверяется» ------------------------
-Write-Host "-- хук: пустой критерий"
-Invoke-Git $proj @('add', '-A') | Out-Null
-$commitEmpty = Invoke-Git $proj @('commit', '-m', 'scaffold')
-Check 'коммит с пустым критерием отклонён' ($commitEmpty.Code -ne 0) "код: $($commitEmpty.Code)"
-Check 'в ошибке указан файл критерия' ($commitEmpty.Out -match 'docs/features/demo.md') $commitEmpty.Out
-
-# --- 6. Заполненные критерии проходят ----------------------------------------
-Write-Host "-- хук: заполненный критерий"
-Set-Text (Join-Path $proj 'docs\features\demo.md') @'
-# Демо-функция
-
-## Цель
-
-Проверить хук.
-
-## Критерии готовности
-
-| # | Что должно стать правдой | Чем проверяется |
-|---|--------------------------|-----------------|
-| 1 | Хук пропускает заполненные критерии | tests/run-tests.ps1 |
-'@
-Invoke-Git $proj @('add', '-A') | Out-Null
-$commitOk = Invoke-Git $proj @('commit', '-m', 'scaffold')
-Check 'коммит с заполненным критерием принят' ($commitOk.Code -eq 0) $commitOk.Out
-
-# --- 7. Раздел без нужной колонки отклоняется --------------------------------
-Write-Host "-- хук: критерии без колонки"
-Set-Text (Join-Path $proj 'docs\features\nocol.md') @'
-# Функция без колонки
-
-## Критерии готовности
-
-| # | Что должно стать правдой |
-|---|--------------------------|
-| 1 | Что-то работает |
-'@
-Invoke-Git $proj @('add', '-A') | Out-Null
-$commitNoCol = Invoke-Git $proj @('commit', '-m', 'no column')
-Check 'коммит без колонки «Чем проверяется» отклонён' ($commitNoCol.Code -ne 0) "код: $($commitNoCol.Code)"
-Invoke-Git $proj @('reset', '-q') | Out-Null
-Remove-Item -LiteralPath (Join-Path $proj 'docs\features\nocol.md') -Force
-
-# --- 8. Архив docs/features/done/ не проверяется ------------------------------
-Write-Host "-- хук: архив done/"
-Set-Text (Join-Path $proj 'docs\features\done\old.md') @'
-# Завершённая функция
-
-## Критерии готовности
-
-| # | Что должно стать правдой | Чем проверяется |
-|---|--------------------------|-----------------|
-| 1 | Уже неважно |                 |
-'@
-Invoke-Git $proj @('add', '-A') | Out-Null
-$commitDone = Invoke-Git $proj @('commit', '-m', 'archive')
-Check 'архив done/ не проверяется' ($commitDone.Code -eq 0) $commitDone.Out
-
-# --- 9. plan.md без PROGRESS.md ----------------------------------------------
-Write-Host "-- хук: план без прогресса"
-Add-Content -LiteralPath (Join-Path $proj 'docs\plan.md') -Value '| 3 | Ещё пункт | Готово | tests |'
-Invoke-Git $proj @('add', 'docs/plan.md') | Out-Null
-$commitPlan = Invoke-Git $proj @('commit', '-m', 'plan only')
-Check 'план без прогресса отклонён' ($commitPlan.Code -ne 0) "код: $($commitPlan.Code)"
-
-Add-Content -LiteralPath (Join-Path $proj 'PROGRESS.md') -Value '- Пункт 3 сделан.'
-Invoke-Git $proj @('add', 'PROGRESS.md') | Out-Null
-$commitBoth = Invoke-Git $proj @('commit', '-m', 'plan and progress')
-Check 'план вместе с прогрессом принят' ($commitBoth.Code -eq 0) $commitBoth.Out
-
-# --- 10. Повторный scaffolding сохраняет документы --------------------------
-Set-Text (Join-Path $proj 'PROGRESS.md') 'existing progress'
-& $generator -Path $proj -Feature another | Out-Null
-Check 'генератор сохраняет существующий прогресс' ([IO.File]::ReadAllText((Join-Path $proj 'PROGRESS.md')) -eq 'existing progress')
-Check 'новая функция добавлена' (Test-Path -LiteralPath (Join-Path $proj 'docs/features/another.md'))
-
-# --- 11. Game Master Plan, включая установленный генератор ------------------
-$game = Join-Path $tmpRoot 'game'
-Set-Text (Join-Path $game 'specs/master/ACTIVE_STAGE.md') 'stage one'
-Invoke-Git $game @('init', '-q') | Out-Null
-& (Join-Path $cfgFresh 'bin/new-project.ps1') -Path $game | Out-Null
-Check 'Game Master Plan не получает стандартные документы' (-not (Test-Path -LiteralPath (Join-Path $game 'docs')) -and -not (Test-Path -LiteralPath (Join-Path $game '.githooks')))
-Set-Text (Join-Path $game 'CLAUDE.md') 'PROJECT_ORCHESTRATION_MODE: STANDARD_DEEPSETING'
-& $generator -Path $game | Out-Null
-Check 'явный STANDARD имеет приоритет над sentinel' (Test-Path -LiteralPath (Join-Path $game 'docs/SPEC.md'))
-$invalid = Join-Path $tmpRoot 'invalid-mode'
-Set-Text (Join-Path $invalid 'CLAUDE.md') "PROJECT_ORCHESTRATION_MODE: GAME_MASTER_PLAN`nPROJECT_ORCHESTRATION_MODE: STANDARD_DEEPSETING"
-Invoke-Git $invalid @('init', '-q') | Out-Null
+$invalidFeature = New-GitFixture 'invalid-feature'
 $rejected = $false
-try { & $generator -Path $invalid | Out-Null } catch { $rejected = $true }
-Check 'несколько режимов отклонены до scaffolding' ($rejected -and -not (Test-Path -LiteralPath (Join-Path $invalid 'docs')))
+try { & $generator -Path $invalidFeature -Feature '...___' | Out-Null } catch { $rejected = $true }
+Check 'empty normalized feature name is rejected' $rejected
+Check 'invalid feature writes nothing' (@(Get-ChildItem -LiteralPath $invalidFeature -Force | Where-Object { $_.Name -ne '.git' }).Count -eq 0)
 
-# --- 12. Патчи Skills: реальные файлы, повторный запуск, конфликт ------------
-$patcher = Join-Path $repo 'bin/update-skill-guidance.ps1'
+Write-Host '-- orchestration routing'
+. (Join-Path $repo 'bin/project-orchestration.ps1')
+$cases = @(
+    @{ Name = 'default'; Marker = ''; Sentinel = $false; Mode = 'STANDARD_DEEPSETING'; Writes = $true },
+    @{ Name = 'explicit-standard'; Marker = 'PROJECT_ORCHESTRATION_MODE: STANDARD_DEEPSETING'; Sentinel = $true; Mode = 'STANDARD_DEEPSETING'; Writes = $true },
+    @{ Name = 'explicit-game'; Marker = 'PROJECT_ORCHESTRATION_MODE: GAME_MASTER_PLAN'; Sentinel = $false; Mode = 'GAME_MASTER_PLAN'; Writes = $false },
+    @{ Name = 'sentinel'; Marker = ''; Sentinel = $true; Mode = 'GAME_MASTER_PLAN'; Writes = $false },
+    @{ Name = 'inline-example'; Marker = 'Example: PROJECT_ORCHESTRATION_MODE: GAME_MASTER_PLAN'; Sentinel = $false; Mode = 'STANDARD_DEEPSETING'; Writes = $true }
+)
+foreach ($case in $cases) {
+    $fixture = New-GitFixture "route-$($case.Name)"
+    if ($case.Marker) { Set-Text (Join-Path $fixture 'CLAUDE.md') $case.Marker }
+    if ($case.Sentinel) { Set-Text (Join-Path $fixture 'specs/master/ACTIVE_STAGE.md') 'stage-1' }
+    Check "$($case.Name) mode" ((Get-ProjectOrchestrationMode $fixture) -eq $case.Mode)
+    $before = @(Snapshot $fixture)
+    & (Join-Path $cfgFresh 'bin/new-project.ps1') -Path $fixture -Feature example | Out-Null
+    if ($case.Writes) {
+        Check "$($case.Name) initializes minimal docs" ((Test-Path -LiteralPath (Join-Path $fixture 'README.md')) -and (Test-Path -LiteralPath (Join-Path $fixture 'docs/specs/example.md')))
+    } else {
+        $after = @(Snapshot $fixture)
+        Check "$($case.Name) preserves every project file" (@(Compare-Object $before $after).Count -eq 0)
+    }
+}
+
+foreach ($entry in @(
+        @{ Name = 'unknown'; Text = 'PROJECT_ORCHESTRATION_MODE: TYPO' },
+        @{ Name = 'duplicate'; Text = "PROJECT_ORCHESTRATION_MODE: GAME_MASTER_PLAN`nPROJECT_ORCHESTRATION_MODE: STANDARD_DEEPSETING" }
+    )) {
+    $fixture = New-GitFixture "route-invalid-$($entry.Name)"
+    Set-Text (Join-Path $fixture 'CLAUDE.md') $entry.Text
+    $rejected = $false
+    try { & $generator -Path $fixture -Feature example | Out-Null } catch { $rejected = $true }
+    Check "$($entry.Name) declaration rejected" $rejected
+    Check "$($entry.Name) declaration writes no docs" (-not (Test-Path -LiteralPath (Join-Path $fixture 'README.md')) -and -not (Test-Path -LiteralPath (Join-Path $fixture 'docs')))
+}
+
+Write-Host '-- audit patch workflow'
 $patchCfg = Join-Path $tmpRoot 'patch-config'
 $patchManifest = Join-Path $tmpRoot 'patches.json'
 $patchFile = Join-Path $patchCfg 'skills/example/SKILL.md'
 Set-Text $patchFile 'prefix old guidance suffix'
 Set-Text $patchManifest '[{"scope":"Codex","path":"skills/example/SKILL.md","replacements":[{"before":"old guidance","after":"new guidance"}]}]'
 & $patcher -ConfigDir $patchCfg -ManifestPath $patchManifest -CheckOnly | Out-Null
-Check 'CheckOnly не меняет skill' ([IO.File]::ReadAllText($patchFile) -eq 'prefix old guidance suffix')
+Check 'CheckOnly does not modify a skill' ((Read-Text $patchFile) -eq 'prefix old guidance suffix')
 & $patcher -ConfigDir $patchCfg -ManifestPath $patchManifest | Out-Null
-Check 'патч сохраняет окружающий текст' ([IO.File]::ReadAllText($patchFile) -eq 'prefix new guidance suffix')
-$backupDir = Split-Path -Parent $patchFile
-Check 'патч сохраняет backup' ((Get-BackupCount $backupDir 'SKILL.md') -eq 1)
+Check 'patch preserves surrounding text' ((Read-Text $patchFile) -eq 'prefix new guidance suffix')
+Check 'patch creates one adjacent backup' ((Backup-Count (Split-Path -Parent $patchFile) 'SKILL.md.bak-*') -eq 1)
 & $patcher -ConfigDir $patchCfg -ManifestPath $patchManifest | Out-Null
-Check 'повторный патч не плодит backup' ((Get-BackupCount $backupDir 'SKILL.md') -eq 1)
+Check 'repeat patch creates no extra backup' ((Backup-Count (Split-Path -Parent $patchFile) 'SKILL.md.bak-*') -eq 1)
+
 Set-Text $patchFile 'prefix old guidance suffix'
-Set-Text (Join-Path $patchCfg 'skills/changed/SKILL.md') 'unrecognized version'
+$conflictFile = Join-Path $patchCfg 'skills/changed/SKILL.md'
+Set-Text $conflictFile 'unrecognized version'
 Set-Text $patchManifest '[{"scope":"Codex","path":"skills/example/SKILL.md","replacements":[{"before":"old guidance","after":"new guidance"}]},{"scope":"Codex","path":"skills/changed/SKILL.md","replacements":[{"before":"expected version","after":"updated version"}]}]'
 $rejected = $false
 try { & $patcher -ConfigDir $patchCfg -ManifestPath $patchManifest | Out-Null } catch { $rejected = $true }
-Check 'конфликт второго файла предотвращает запись первого' ($rejected -and [IO.File]::ReadAllText($patchFile) -eq 'prefix old guidance suffix')
+Check 'conflict prevents writes to every target' ($rejected -and (Read-Text $patchFile) -eq 'prefix old guidance suffix')
 Set-Text $patchManifest '[{"scope":"Codex","path":"../outside.md","replacements":[{"before":"old","after":"new"}]}]'
 $rejected = $false
 try { & $patcher -ConfigDir $patchCfg -ManifestPath $patchManifest | Out-Null } catch { $rejected = $true }
-Check 'патч не выходит за выбранный каталог' $rejected
+Check 'patch cannot escape selected root' $rejected
 
-# --- Итог --------------------------------------------------------------------
-Write-Host ""
-Write-Host "Пройдено: $($script:passed), провалено: $($script:failed)"
+Write-Host '-- removed ceremony regression'
+$generatorText = Read-Text $generator
+$skillText = Read-Text (Join-Path $repo 'codex/skills/project-specifications/SKILL.md')
+Check 'generator contains no hook implementation' ($generatorText -notmatch 'pre-commit|core\.hooksPath')
+Check 'skill does not mandate four-document workflow' ($skillText -notmatch 'Проект ведётся по четырём документам|Остановись и покажи критерии|после каждого шага обновляй')
+foreach ($relative in @('PROGRESS.md', 'codex/skills/project-specifications/templates/SPEC.md', 'codex/skills/project-specifications/templates/plan.md', 'codex/skills/project-specifications/templates/progress.md', 'codex/skills/project-specifications/templates/feature.md')) {
+    Check "obsolete artifact removed: $relative" (-not (Test-Path -LiteralPath (Join-Path $repo $relative)))
+}
+Check 'Codex audit patch manifest preserved' (Test-Path -LiteralPath (Join-Path $repo 'codex/skill-patches.json') -PathType Leaf)
+Check 'skill guidance patcher preserved' (Test-Path -LiteralPath $patcher -PathType Leaf)
 
+Write-Host "`nPassed: $($script:passed), failed: $($script:failed)"
 if (-not $Keep) {
-    # Файлы внутри .git помечены только для чтения — снимаем атрибут перед удалением.
-    Get-ChildItem -LiteralPath $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue |
-        ForEach-Object { try { $_.Attributes = 'Normal' } catch {} }
+    Get-ChildItem -LiteralPath $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { try { $_.Attributes = 'Normal' } catch {} }
     Remove-Item -LiteralPath $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
-
 if ($script:failed -gt 0) { exit 1 }
 exit 0

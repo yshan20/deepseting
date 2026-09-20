@@ -26,6 +26,7 @@ Write-Host '== Codex: установка обвязки =='
 Write-Host "Каталог настроек : $configDir"
 if (-not (Test-Path -LiteralPath $payload)) { throw "Не найден каталог настроек: $payload" }
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+$configDir = (Resolve-Path -LiteralPath $configDir).Path
 
 $rulesSrc = Join-Path $payload 'AGENTS.md'
 $rulesDst = Join-Path $configDir 'AGENTS.md'
@@ -50,13 +51,48 @@ Write-Host "[OK] config.toml -> $settingsDst"
 
 $skillSrc = Join-Path $payload 'skills\project-specifications'
 $skillDst = Join-Path $configDir 'skills\project-specifications'
-foreach ($file in Get-ChildItem -LiteralPath $skillSrc -Recurse -File) {
-    $relative = $file.FullName.Substring($skillSrc.Length).TrimStart('\', '/')
-    $destination = Join-Path $skillDst $relative
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
-    $skillText = [IO.File]::ReadAllText($file.FullName).Replace("`r`n", "`n")
-    Backup-IfDifferent $destination $skillText
-    Write-Utf8NoBom $destination $skillText
+if (Test-Path -LiteralPath $skillDst) {
+    $resolvedSkill = (Resolve-Path -LiteralPath $skillDst).Path
+    $expectedSkill = [IO.Path]::GetFullPath((Join-Path $configDir 'skills\project-specifications'))
+    if ($resolvedSkill -ne $expectedSkill) { throw "Unexpected skill path: $resolvedSkill" }
+    foreach ($entry in @((Get-Item -LiteralPath $skillDst)) + @(Get-ChildItem -LiteralPath $skillDst -Recurse -Force)) {
+        if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "Refusing to replace linked skill path: $($entry.FullName)"
+        }
+    }
+
+    $different = $false
+    $sourceFiles = @(Get-ChildItem -LiteralPath $skillSrc -Recurse -File -Force)
+    $destinationFiles = @(Get-ChildItem -LiteralPath $skillDst -Recurse -File -Force)
+    if ($sourceFiles.Count -ne $destinationFiles.Count) { $different = $true }
+    foreach ($file in $sourceFiles) {
+        $relative = $file.FullName.Substring($skillSrc.Length).TrimStart('\', '/')
+        $destination = Join-Path $skillDst $relative
+        if (-not (Test-Path -LiteralPath $destination -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash -ne
+            (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash) {
+            $different = $true
+        }
+    }
+
+    if ($different) {
+        $backupRoot = Join-Path $configDir 'backups\skills'
+        $expectedBackupRoot = [IO.Path]::GetFullPath($backupRoot)
+        $configPrefix = $configDir.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+        if (-not ($expectedBackupRoot + [IO.Path]::DirectorySeparatorChar).StartsWith($configPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Unsafe skill backup path: $expectedBackupRoot"
+        }
+        New-Item -ItemType Directory -Force -Path $expectedBackupRoot | Out-Null
+        $backup = Join-Path $expectedBackupRoot "project-specifications-$(Get-Date -Format 'yyyyMMdd-HHmmss-fffffff')"
+        Copy-Item -LiteralPath $skillDst -Destination $backup -Recurse
+        Write-Host "[i] skill backup -> $backup"
+    }
+
+    Remove-Item -LiteralPath $resolvedSkill -Recurse -Force
+}
+New-Item -ItemType Directory -Force -Path $skillDst | Out-Null
+foreach ($entry in Get-ChildItem -LiteralPath $skillSrc -Force) {
+    Copy-Item -LiteralPath $entry.FullName -Destination $skillDst -Recurse -Force
 }
 Write-Host "[OK] skill project-specifications -> $skillDst"
 
