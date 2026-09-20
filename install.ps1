@@ -43,13 +43,29 @@ function Write-Utf8NoBom([string]$Path, [string]$Text) {
     [System.IO.File]::WriteAllText($Path, $Text, $utf8)
 }
 
+# Резервные копии складываются в <config>/backups, а не рядом с оригиналом.
+# Копия внутри skills/ загружается Claude Code как ещё один скилл с почти тем же
+# описанием; копия внутри rules/ засоряет каталог правил. Путь внутри backups
+# повторяет путь внутри каталога настроек, поэтому откат — это обычное копирование назад.
+$backupRoot = Join-Path $configDir 'backups'
+
+function Get-BackupPath([string]$Path, [string]$Stamp) {
+    $full = [System.IO.Path]::GetFullPath($Path)
+    if (-not $full.StartsWith($configDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to back up a path outside the config directory: $full"
+    }
+    $relative = $full.Substring($configDir.Length).TrimStart('\', '/')
+    $bak = Join-Path $backupRoot "$relative.bak-$Stamp"
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $bak) | Out-Null
+    return $bak
+}
+
 # Копия существующего файла, если его содержимое отличается от нового.
 function Backup-IfDifferent([string]$Path, [string]$NewText) {
     if (-not (Test-Path -LiteralPath $Path)) { return $false }
     $current = [System.IO.File]::ReadAllText($Path)
     if ($current -eq $NewText) { return $false }
-    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $bak = "$Path.bak-$stamp"
+    $bak = Get-BackupPath $Path (Get-Date -Format 'yyyyMMdd-HHmmss')
     Copy-Item -LiteralPath $Path -Destination $bak -Force
     Write-Host "[i]  прежняя версия сохранена: $bak"
     return $true
@@ -139,7 +155,7 @@ if (Test-Path -LiteralPath $skillDst) {
             (Get-FileHash -LiteralPath $file.FullName).Hash -ne (Get-FileHash -LiteralPath $destFile).Hash) { $different = $true }
     }
     if ($different) {
-        $backup = "$skillDst.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss-fffffff')"
+        $backup = Get-BackupPath $skillDst (Get-Date -Format 'yyyyMMdd-HHmmss-fffffff')
         Copy-Item -LiteralPath $skillDst -Destination $backup -Recurse
         Write-Host "[i]  skill backup: $backup"
     }

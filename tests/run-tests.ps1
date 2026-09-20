@@ -64,8 +64,27 @@ function Read-Json([string]$Path) {
     return [System.IO.File]::ReadAllText($Path) | ConvertFrom-Json
 }
 
-function Get-BackupCount([string]$Dir, [string]$Name) {
-    return @(Get-ChildItem -LiteralPath $Dir -Filter "$Name.bak-*" -ErrorAction SilentlyContinue).Count
+# Копии лежат в <config>/backups и повторяют путь внутри каталога настроек.
+function Get-BackupCount([string]$ConfigDir, [string]$Relative) {
+    $dir = Join-Path $ConfigDir 'backups'
+    $parent = Split-Path -Parent $Relative
+    if ($parent) { $dir = Join-Path $dir $parent }
+    $leaf = Split-Path -Leaf $Relative
+    return @(Get-ChildItem -LiteralPath $dir -Filter "$leaf.bak-*" -Force -ErrorAction SilentlyContinue).Count
+}
+
+# Копия внутри skills/ подхватывается Claude Code как отдельный скилл, внутри rules/ —
+# засоряет правила. Ни один каталог обвязки не должен содержать резервных копий.
+function Get-StrayBackupCount([string]$ConfigDir) {
+    $stray = 0
+    foreach ($sub in @('skills', 'rules', 'bin')) {
+        $dir = Join-Path $ConfigDir $sub
+        if (Test-Path -LiteralPath $dir) {
+            $stray += @(Get-ChildItem -LiteralPath $dir -Recurse -Force -Filter '*.bak-*' -ErrorAction SilentlyContinue).Count
+        }
+    }
+    $stray += @(Get-ChildItem -LiteralPath $ConfigDir -Force -Filter '*.bak-*' -ErrorAction SilentlyContinue).Count
+    return $stray
 }
 
 Write-Host "== Тесты обвязки Claude Code =="
@@ -109,7 +128,7 @@ $merged = Read-Json (Join-Path $cfgMerge 'settings.json')
 
 Check 'личные правила не удалены' (Test-Path -LiteralPath (Join-Path $cfgMerge 'rules\personal.md'))
 Check 'правило обвязки обновлено' ([System.IO.File]::ReadAllText((Join-Path $cfgMerge 'rules\architecture.md')) -match 'Доменная архитектура')
-Check 'сделана копия прежнего правила' ((Get-BackupCount (Join-Path $cfgMerge 'rules') 'architecture.md') -eq 1) "копий: $(Get-BackupCount (Join-Path $cfgMerge 'rules') 'architecture.md')"
+Check 'сделана копия прежнего правила' ((Get-BackupCount $cfgMerge 'rules\architecture.md') -eq 1) "копий: $(Get-BackupCount $cfgMerge 'rules\architecture.md')"
 
 Check 'чужие ключи сохранены' ($merged.statusLine.command -eq 'echo hi')
 Check 'вложенные чужие ключи сохранены' (@($merged.permissions.allow) -contains 'Bash(ls:*)')
@@ -123,6 +142,8 @@ Write-Host "-- повторная установка"
 $again = Read-Json (Join-Path $cfgMerge 'settings.json')
 Check 'повторная установка не портит настройки' ($again.statusLine.command -eq 'echo hi' -and $again.model -eq 'opus')
 Check 'лишних резервных копий нет' ((Get-BackupCount $cfgMerge 'settings.json') -eq 1) "копий: $(Get-BackupCount $cfgMerge 'settings.json')"
+Check 'копии сложены в backups/' (Test-Path -LiteralPath (Join-Path $cfgMerge 'backups'))
+Check 'копии не засоряют каталоги обвязки' ((Get-StrayBackupCount $cfgMerge) -eq 0) "найдено копий рядом с оригиналами: $(Get-StrayBackupCount $cfgMerge)"
 
 # --- 4. Каркас нового проекта -------------------------------------------------
 Write-Host "-- каркас проекта"
